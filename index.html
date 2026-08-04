@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="theme-color" content="#00A884">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MKJ Chat">
+<title>MKJ Chat</title>
+<link rel="manifest" id="pwa-manifest">
+<script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="rotate-lock">
+  <div style="font-size:44px;">📱</div>
+  <div style="font-size:16px;font-weight:700;">Please rotate your phone back to portrait</div>
+  <div style="font-size:13px;color:#8FA79D;max-width:280px;line-height:1.5;">MKJ Chat is designed for portrait use. For the best experience — including locking this automatically — add MKJ Chat to your home screen instead of using it in a browser tab.</div>
+</div>
+<div id="root" style="max-width:480px;margin:0 auto;display:flex;flex-direction:column;height:100dvh;overflow:hidden;position:relative;background:var(--bg);">
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SESSION CHECK SCREEN — shown by default while we ask Firebase
+     whether this device already has a logged-in session. Prevents
+     the login form from flashing on every reload for users who are
+     actually still logged in.
+════════════════════════════════════════════════════════════════ -->
+<div id="session-check-screen" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;">
+  <div style="width:70px;height:70px;border-radius:22px;overflow:hidden;background:var(--s2);display:flex;align-items:center;justify-content:center;">
+    <img id="session-check-logo" style="width:60px;height:60px;object-fit:contain;" alt="MKJ Chat">
+  </div>
+  <div style="width:26px;height:26px;border:3px solid var(--s2);border-top-color:var(--g);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+</div>
+<style>@keyframes spin{to{transform:rotate(360deg);}}</style>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     AUTH SCREEN
+════════════════════════════════════════════════════════════════ -->
+<div id="auth-screen" style="flex:1;display:none;flex-direction:column;overflow-y:auto;padding:28px 20px 40px;">
+  <div style="text-align:center;margin:32px 0 28px;">
+    <div style="width:90px;height:90px;border-radius:28px;overflow:hidden;margin:0 auto 16px;background:var(--s2);display:flex;align-items:center;justify-content:center;">
+      <img id="app-logo" style="width:80px;height:80px;object-fit:contain;" alt="MKJ Chat">
+    </div>
+    <h1 style="font-size:28px;font-weight:900;color:var(--g);letter-spacing:-.5px;">MKJ Chat</h1>
+    <p style="color:var(--t2);font-size:13px;margin-top:5px;">Fast · Secure · Private</p>
+  </div>
+  <!-- Tabs -->
+  <div style="display:flex;border-bottom:1px solid var(--s2);margin-bottom:20px;">
+    <button id="tab-si" onclick="authTab('login')" style="flex:1;padding:12px;font-weight:700;font-size:15px;color:var(--g);border-bottom:2.5px solid var(--g);background:none;">Sign In</button>
+    <button id="tab-re" onclick="authTab('register')" style="flex:1;padding:12px;font-weight:700;font-size:15px;color:var(--t2);border-bottom:2.5px solid transparent;background:none;">Register</button>
+  </div>
+  <!-- Login -->
+  <div id="login-panel">
+    <input id="le" type="email" placeholder="Email address" class="auth-input" autocomplete="email">
+    <input id="lp" type="password" placeholder="Password" class="auth-input" autocomplete="current-password">
+    <button onclick="doLogin()" class="auth-btn" id="login-btn">Sign In</button>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;"><div style="flex:1;height:1px;background:var(--s2);"></div><span style="color:var(--t2);font-size:12px;">or</span><div style="flex:1;height:1px;background:var(--s2);"></div></div>
+    <button onclick="doGoogleAuth()" class="google-btn">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.2l6.8-6.8C35.8 2.2 30.3 0 24 0 14.7 0 6.8 5.4 2.8 13.3l7.9 6.1C12.6 13.2 17.9 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.4c-.5 2.8-2.2 5.1-4.7 6.7l7.3 5.7c4.3-4 6.8-9.8 6.8-16.4z"/><path fill="#FBBC05" d="M10.7 28.6A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7L2.4 13.2A24 24 0 0 0 0 24c0 3.9.9 7.5 2.5 10.8l8.2-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2 1.4-4.6 2.2-8.5 2.2-6.1 0-11.3-4.1-13.2-9.7l-8 6.2C6.7 42.5 14.7 48 24 48z"/></svg>
+      Continue with Google
+    </button>
+  </div>
+  <!-- Register -->
+  <div id="reg-panel" class="hidden">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;background:var(--s2);border-radius:14px;padding:12px;">
+      <img id="av-prev" src="https://ui-avatars.com/api/?background=00A884&color=fff&bold=true&size=80&name=U" style="width:56px;height:56px;border-radius:50%;object-fit:cover;flex-shrink:0;">
+      <label style="flex:1;text-align:center;padding:10px;border-radius:10px;background:var(--bg);color:var(--t2);font-size:13px;cursor:pointer;display:block;">
+        <i class="fa-solid fa-camera" style="color:var(--g);margin-right:6px;"></i>Add Photo
+        <input type="file" id="pic-inp" accept="image/*" style="display:none;" onchange="previewPic(this)">
+      </label>
+    </div>
+    <input id="rn" type="text" placeholder="Full name / Username" class="auth-input" autocomplete="name">
+    <input id="re" type="email" placeholder="Email address" class="auth-input" autocomplete="email">
+    <input id="rp" type="password" placeholder="Password (min 6 chars)" class="auth-input" autocomplete="new-password">
+    <button onclick="doRegister()" class="auth-btn" id="reg-btn">Create Account</button>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;"><div style="flex:1;height:1px;background:var(--s2);"></div><span style="color:var(--t2);font-size:12px;">or</span><div style="flex:1;height:1px;background:var(--s2);"></div></div>
+    <button onclick="doGoogleAuth()" class="google-btn">
+      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.2l6.8-6.8C35.8 2.2 30.3 0 24 0 14.7 0 6.8 5.4 2.8 13.3l7.9 6.1C12.6 13.2 17.9 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.4c-.5 2.8-2.2 5.1-4.7 6.7l7.3 5.7c4.3-4 6.8-9.8 6.8-16.4z"/><path fill="#FBBC05" d="M10.7 28.6A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7L2.4 13.2A24 24 0 0 0 0 24c0 3.9.9 7.5 2.5 10.8l8.2-6.2z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2 1.4-4.6 2.2-8.5 2.2-6.1 0-11.3-4.1-13.2-9.7l-8 6.2C6.7 42.5 14.7 48 24 48z"/></svg>
+      Sign up with Google
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     MAIN APP
+════════════════════════════════════════════════════════════════ -->
+<div id="app" class="hidden" style="flex:1;display:flex;flex-direction:column;min-height:0;">
+
+  <!-- CHATS VIEW -->
+  <div id="v-chats" class="view show">
+    <div style="background:var(--s1);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+      <span style="font-size:22px;font-weight:900;color:var(--t1);">MKJ <span style="color:var(--g);">Chat</span></span>
+      <div style="display:flex;gap:16px;align-items:center;">
+        <button onclick="openModal('global-search-modal');setTimeout(()=>$('global-search-inp')?.focus(),100)" style="color:var(--t2);font-size:20px;"><i class="fa-solid fa-magnifying-glass"></i></button>
+        <button onclick="openModal('create-group-modal')" style="color:var(--t2);font-size:20px;"><i class="fa-solid fa-people-group"></i></button>
+        <button onclick="toggleTheme()" style="color:var(--t2);font-size:20px;"><i class="fa-solid fa-circle-half-stroke"></i></button>
+      </div>
+    </div>
+    <div style="background:var(--s1);padding:6px 14px 10px;flex-shrink:0;">
+      <div style="background:var(--s2);border-radius:12px;padding:9px 14px;display:flex;align-items:center;gap:10px;">
+        <i class="fa-solid fa-magnifying-glass" style="color:var(--t2);font-size:13px;"></i>
+        <input id="chat-search-inp" oninput="filterChats(this.value)" placeholder="Search name or #MKJ number…" style="flex:1;font-size:14px;">
+      </div>
+    </div>
+    <div style="flex:1;overflow-y:auto;">
+      <!-- Folders -->
+      <div style="padding:8px 14px 4px;overflow-x:auto;display:flex;gap:8px;flex-shrink:0;" id="folders-row">
+        <button class="folder-chip active" onclick="setFolder('all',this)">All</button>
+        <button class="folder-chip" onclick="setFolder('unread',this)">Unread</button>
+        <button class="folder-chip" onclick="setFolder('pinned',this)">📌 Pinned</button>
+        <button class="folder-chip" onclick="setFolder('groups',this)">Groups</button>
+        <button class="folder-chip" onclick="setFolder('saved',this)">Saved</button>
+        <button class="folder-chip" onclick="openArchive()">📦 Archive</button>
+        <button class="folder-chip" onclick="openModal('manage-folders-modal')">+</button>
+      </div>
+      <!-- Pinned -->
+      <div id="pinned-contacts-row" class="hidden">
+        <div class="sect" style="padding-bottom:4px;">PINNED</div>
+        <div id="pinned-scroll" class="hscroll"></div>
+      </div>
+      <!-- Channels -->
+      <div id="channels-section-wrap" class="hidden">
+        <div class="sect" style="padding-bottom:4px;">CHANNELS</div>
+        <div id="channels-hscroll" class="hscroll"></div>
+      </div>
+      <!-- Groups -->
+      <div id="groups-section-wrap" class="hidden">
+        <div class="sect" style="padding-bottom:4px;">GROUPS</div>
+        <div id="groups-hscroll" class="hscroll"></div>
+      </div>
+      <div id="has-divider" class="divider hidden"></div>
+      <div id="priv-list"></div>
+      <div id="empty-chats" style="display:none;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center;">
+        <div style="font-size:64px;margin-bottom:16px;">💬</div>
+        <div style="font-weight:700;color:var(--t1);font-size:18px;margin-bottom:8px;">No chats yet</div>
+        <div style="color:var(--t2);font-size:14px;">Tap + to start a conversation</div>
+      </div>
+    </div>
+    <button onclick="if(typeof openMkjAi==='function')openMkjAi();" style="position:absolute;bottom:134px;right:20px;width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,#7C3AED,#33E0AC);box-shadow:0 4px 16px rgba(124,58,237,.4);display:flex;align-items:center;justify-content:center;z-index:5;" title="MKJ AI">
+      <i class="fa-solid fa-robot" style="color:#fff;font-size:18px;"></i>
+    </button>
+    <button onclick="openSearch()" style="position:absolute;bottom:72px;right:16px;width:54px;height:54px;border-radius:50%;background:var(--g);box-shadow:0 4px 18px rgba(0,168,132,.4);display:flex;align-items:center;justify-content:center;z-index:5;">
+      <i class="fa-solid fa-plus" style="color:#fff;font-size:22px;"></i>
+    </button>
+  </div>
+
+  <!-- COMMUNITY VIEW -->
+  <div id="v-global" class="view">
+    <div style="background:var(--s1);padding:12px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0;">
+      <div style="flex:1;">
+        <div style="font-weight:700;color:var(--t1);font-size:16px;">MKJ Community 🌍</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div id="g-typing" style="font-size:11px;color:var(--g);min-height:14px;"></div>
+          <div id="online-counter" style="font-size:11px;color:var(--t2);display:none;"><span style="color:#22c55e;">●</span> <span id="online-count">0</span> online</div>
+        </div>
+      </div>
+      <button onclick="openModal('comm-rules-modal')" style="color:var(--t2);font-size:18px;" title="Community Rules"><i class="fa-solid fa-shield-halved"></i></button>
+      <button onclick="openWatchPartyHub()" style="color:var(--t2);font-size:18px;" title="Watch Party"><i class="fa-solid fa-clapperboard"></i></button>
+      <button onclick="openModal('msg-search-modal')" style="color:var(--t2);font-size:18px;"><i class="fa-solid fa-magnifying-glass"></i></button>
+      <button onclick="openModal('pin-modal');loadPinned('global')" style="color:var(--t2);font-size:18px;"><i class="fa-solid fa-thumbtack"></i></button>
+    </div>
+    <div id="global-msgs" class="msgs"></div>
+    <div id="g-reply-bar" class="hidden"><div class="reply-bar"><div><div id="g-rn" style="font-size:11px;color:var(--g);font-weight:600;"></div><div id="g-rt" style="font-size:13px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;"></div></div><button onclick="clearReply('global')" style="color:var(--t2);font-size:18px;"><i class="fa-solid fa-xmark"></i></button></div></div>
+    <div id="ai-row-g" class="ai-row hidden"></div>
+    <!-- CEO-only input bar -->
+    <div id="g-inp-bar" class="inp-bar hidden">
+      <button onclick="openAttach('global')" style="color:var(--t2);font-size:21px;padding:4px;"><i class="fa-solid fa-paperclip"></i></button>
+      <div class="inp-wrap">
+        <textarea id="g-inp" placeholder="Message community…" rows="1" oninput="autoResize(this);handleTyping('global');onInpChange('g-inp','ai-row-g');" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendGlobal();}"></textarea>
+        <button onclick="openEmojiKeyboard('global')" style="color:var(--t2);font-size:18px;"><i class="fa-regular fa-face-smile"></i></button>
+      </div>
+      <button id="g-send-btn" onclick="sendGlobal()" class="send-btn"><i class="fa-solid fa-microphone" id="g-send-icon" style="color:#fff;font-size:17px;"></i></button>
+    </div>
+    <!-- Read-only banner for non-CEO -->
+    <div id="g-readonly-banner" style="padding:12px 16px;background:var(--s1);border-top:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:10px;flex-shrink:0;">
+      <i class="fa-solid fa-bullhorn" style="color:var(--g);font-size:18px;"></i>
+      <span style="color:var(--t2);font-size:13px;">📢 Official announcements only — react below</span>
+    </div>
+  </div>
+
+  <!-- PRIVATE CHAT VIEW -->
+  <div id="v-private" class="view">
+    <div style="background:var(--s1);padding:10px 12px;display:flex;align-items:center;gap:10px;flex-shrink:0;">
+      <button onclick="closePrivate()" style="color:var(--t2);font-size:21px;padding:2px 4px;"><i class="fa-solid fa-arrow-left"></i></button>
+      <div style="position:relative;flex-shrink:0;" onclick="openChatInfo()">
+        <img id="p-av" src="" style="width:42px;height:42px;border-radius:50%;object-fit:cover;cursor:pointer;" onerror="this.src='https://ui-avatars.com/api/?background=00A884&color=fff&name=U'">
+        <div id="p-dot" class="online-dot hidden"></div>
+      </div>
+      <div style="flex:1;min-width:0;cursor:pointer;" onclick="openChatInfo()">
+        <div id="p-name" style="font-weight:600;color:var(--t1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;"></div>
+        <div id="p-sub" style="font-size:11px;color:var(--g);min-height:14px;"></div>
+      </div>
+      <button onclick="if(chatTarget)startCall(chatTarget.uid,'audio')" style="color:var(--t2);font-size:18px;" title="Voice call"><i class="fa-solid fa-phone"></i></button>
+      <button onclick="if(chatTarget)startCall(chatTarget.uid,'video')" style="color:var(--t2);font-size:18px;" title="Video call"><i class="fa-solid fa-video"></i></button>
+      <button onclick="openChatSearch();injectChatSearchBar('v-private')" style="color:var(--t2);font-size:18px;" title="Search in chat"><i class="fa-solid fa-search"></i></button>
+      <button onclick="openPrivatMenu()" style="color:var(--t2);font-size:18px;"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+    </div>
+    <!-- Encryption badge -->
+    <div class="encrypt-badge" style="padding:3px 12px;flex-shrink:0;"><i class="fa-solid fa-lock" style="font-size:9px;"></i> End-to-end encrypted</div>
+    <div id="p-load-more" class="hidden" style="text-align:center;padding:8px;flex-shrink:0;">
+      <button onclick="loadMorePrivate()" style="font-size:12px;color:var(--g);padding:6px 16px;background:var(--s2);border-radius:20px;">Load earlier messages</button>
+    </div>
+    <div id="priv-msgs" class="msgs"></div>
+    <div id="p-reply-bar" class="hidden"><div class="reply-bar"><div><div id="p-rn" style="font-size:11px;color:var(--g);font-weight:600;"></div><div id="p-rt" style="font-size:13px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;"></div></div><button onclick="clearReply('private')" style="color:var(--t2);font-size:18px;"><i class="fa-solid fa-xmark"></i></button></div></div>
+    <div id="quick-row" class="hidden" style="padding:6px 12px;overflow-x:auto;display:flex;gap:8px;flex-shrink:0;border-top:1px solid rgba(255,255,255,.04);"></div>
+    <div id="ai-row-p" class="ai-row hidden"></div>
+    <div class="inp-bar">
+      <button onclick="openAttach('private')" style="color:var(--t2);font-size:21px;padding:4px;"><i class="fa-solid fa-paperclip"></i></button>
+      <div class="inp-wrap">
+        <textarea id="p-inp" placeholder="Message" rows="1" oninput="autoResize(this);handleTyping('private');onInpChange('p-inp','ai-row-p');saveDraft(chatId,this.value);" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendPrivate();}"></textarea>
+        <button onclick="openEmojiKeyboard('private')" style="color:var(--t2);font-size:18px;"><i class="fa-regular fa-face-smile"></i></button>
+      </div>
+      <button id="p-send-btn" onclick="handleSendBtn('private')" class="send-btn"><i id="p-send-icon" class="fa-solid fa-microphone" style="color:#fff;font-size:17px;"></i></button>
+    </div>
+  </div>
+
+  <!-- GROUP CHAT VIEW -->
+  <div id="v-group" class="view">
+    <div style="background:var(--s1);padding:10px 12px;display:flex;align-items:center;gap:10px;flex-shrink:0;">
+      <button onclick="closeGroup()" style="color:var(--t2);font-size:21px;padding:2px 4px;"><i class="fa-solid fa-arrow-left"></i></button>
+      <img id="grp-av" src="" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;" onerror="this.src='https://ui-avatars.com/api/?background=7C3AED&color=fff&name=G'">
+      <div style="flex:1;min-width:0;">
+        <div id="grp-name" style="font-weight:600;color:var(--t1);font-size:15px;"></div>
+        <div id="grp-typing" style="font-size:11px;color:var(--g);min-height:14px;"></div>
+      </div>
+      <button onclick="openGroupCallMenu()" style="color:var(--t2);font-size:18px;"><i class="fa-solid fa-phone"></i></button>
+      <button onclick="openModal('poll-modal')" style="color:var(--t2);font-size:18px;"><i class="fa-solid fa-square-poll-horizontal"></i></button>
+      <button onclick="openModal('pin-modal');loadPinned('group')" style="color:var(--t2);font-size:18px;"><i class="fa-solid fa-thumbtack"></i></button>
+      <button onclick="openGroupInfo()" style="color:var(--t2);font-size:18px;"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+    </div>
+    <div id="gcall-banner" class="hidden" onclick="joinGroupCall()" style="background:linear-gradient(135deg,#0F8F6B,#33E0AC);padding:10px 16px;display:flex;align-items:center;gap:10px;cursor:pointer;flex-shrink:0;">
+      <i class="fa-solid fa-phone-volume" style="color:#0D1512;font-size:16px;"></i>
+      <span id="gcall-banner-text" style="color:#0D1512;font-weight:700;font-size:13px;flex:1;">Call in progress · tap to join</span>
+      <i class="fa-solid fa-chevron-right" style="color:#0D1512;font-size:13px;"></i>
+    </div>
+    <div id="grp-load-more" class="hidden" style="text-align:center;padding:8px;flex-shrink:0;">
+      <button onclick="loadMoreGroup()" style="font-size:12px;color:var(--g);padding:6px 16px;background:var(--s2);border-radius:20px;">Load earlier messages</button>
+    </div>
+    <div id="group-msgs" class="msgs"></div>
+    <div id="grp-reply-bar" class="hidden"><div class="reply-bar"><div><div id="grp-rn" style="font-size:11px;color:var(--g);font-weight:600;"></div><div id="grp-rt" style="font-size:13px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;"></div></div><button onclick="clearReply('group')" style="color:var(--t2);font-size:18px;"><i class="fa-solid fa-xmark"></i></button></div></div>
+    <div id="ai-row-grp" class="ai-row hidden"></div>
+    <div class="inp-bar">
+      <button onclick="openAttach('group')" style="color:var(--t2);font-size:21px;padding:4px;"><i class="fa-solid fa-paperclip"></i></button>
+      <div class="inp-wrap">
+        <textarea id="grp-inp" placeholder="Message group…" rows="1" oninput="autoResize(this);handleTyping('group');handleMentionInput('grp-inp');onInpChange('grp-inp','ai-row-grp');" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendGroup();}"></textarea>
+        <button onclick="openEmojiKeyboard('group')" style="color:var(--t2);font-size:18px;"><i class="fa-regular fa-face-smile"></i></button>
+      </div>
+      <button id="grp-send-btn" onclick="handleSendBtn('group')" class="send-btn"><i id="grp-send-icon" class="fa-solid fa-microphone" style="color:#fff;font-size:17px;"></i></button>
+    </div>
+  </div>
+
+  <!-- CHANNEL VIEW -->
+  <div id="v-channel" class="view">
+    <div style="background:var(--s1);padding:10px 12px;display:flex;align-items:center;gap:10px;flex-shrink:0;">
+      <button onclick="closeChannel()" style="color:var(--t2);font-size:21px;padding:2px 4px;"><i class="fa-solid fa-arrow-left"></i></button>
+      <div style="flex:1;min-width:0;">
+        <div id="ch-name" style="font-weight:700;color:var(--t1);font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+        <div id="ch-sub" style="font-size:11px;color:var(--t2);"></div>
+      </div>
+    </div>
+    <div id="ch-msgs" style="flex:1;overflow-y:auto;padding:8px 0;background:var(--chat-bg);"></div>
+    <!-- Owner post bar -->
+    <div id="ch-inp-bar" class="inp-bar hidden">
+      <div class="inp-wrap" style="flex:1;">
+        <textarea id="ch-post-inp" placeholder="Write an announcement…" rows="1" oninput="autoResize(this);" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChannelPost();}"></textarea>
+      </div>
+      <button onclick="sendChannelPost()" class="send-btn"><i class="fa-solid fa-paper-plane" style="color:#fff;font-size:17px;"></i></button>
+    </div>
+    <!-- Read-only banner -->
+    <div id="ch-readonly-banner" style="padding:12px 16px;background:var(--s1);border-top:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:10px;flex-shrink:0;">
+      <i class="fa-solid fa-eye" style="color:var(--g);font-size:16px;"></i>
+      <span style="color:var(--t2);font-size:13px;">You can react but only the owner can post</span>
+    </div>
+  </div>
+  <div id="v-status" class="view">
+    <div style="background:var(--s1);padding:14px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+      <span style="font-size:22px;font-weight:900;color:var(--t1);">Updates</span>
+      <button onclick="openStatusCreator()" style="color:var(--g);font-size:13px;font-weight:700;padding:8px 14px;background:rgba(0,168,132,.12);border-radius:20px;">+ Add</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;">
+      <div style="background:var(--s1);margin-bottom:8px;padding-bottom:4px;">
+        <div class="sect">MY STATUS</div>
+        <div class="ci" onclick="openMyStatus()">
+          <div style="position:relative;flex-shrink:0;">
+            <img id="my-sv-av" src="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;" class="status-ring">
+            <div style="position:absolute;bottom:0;right:0;width:22px;height:22px;border-radius:50%;background:var(--g);display:flex;align-items:center;justify-content:center;border:2px solid var(--bg);">
+              <i class="fa-solid fa-plus" style="color:#fff;font-size:10px;"></i>
+            </div>
+          </div>
+          <div><div style="font-weight:600;color:var(--t1);">My status</div><div id="my-status-hint" style="font-size:13px;color:var(--t2);">Tap to add a status update</div></div>
+        </div>
+      </div>
+      <div style="background:var(--s1);">
+        <div class="sect">RECENT UPDATES</div>
+        <div id="status-list"></div>
+        <div id="no-status" style="text-align:center;padding:32px 20px;color:var(--t2);font-size:14px;display:none;">No updates from contacts yet</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PROFILE VIEW -->
+  <div id="v-profile" class="view" style="overflow-y:auto;">
+    <!-- Hero -->
+    <div style="background:var(--s1);padding:28px 20px 20px;text-align:center;">
+      <div style="position:relative;display:inline-block;margin-bottom:14px;">
+        <img id="prof-img" src="" style="width:88px;height:88px;border-radius:50%;object-fit:cover;border:3px solid var(--g);">
+        <button onclick="changeProfilePic()" style="position:absolute;bottom:2px;right:2px;width:28px;height:28px;border-radius:50%;background:var(--g);display:flex;align-items:center;justify-content:center;border:2px solid var(--bg);"><i class="fa-solid fa-camera" style="color:#fff;font-size:11px;"></i></button>
+      </div>
+      <div id="prof-name" style="font-size:20px;font-weight:800;color:var(--t1);"></div>
+      <div id="prof-mkj" style="font-size:13px;color:var(--blue);margin-top:3px;font-weight:600;"></div>
+      <div id="prof-email" style="font-size:12px;color:var(--t2);margin-top:2px;"></div>
+      <div id="streak-display" style="margin-top:10px;display:flex;justify-content:center;"></div>
+      <!-- Quick action buttons -->
+      <div style="display:flex;gap:10px;margin-top:14px;justify-content:center;flex-wrap:wrap;">
+        <button onclick="openNotifCenter()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 16px;background:var(--s2);border-radius:14px;flex:1;min-width:70px;">
+          <div style="position:relative;"><i class="fa-solid fa-bell" style="font-size:22px;color:var(--amber);"></i><span id="prof-notif-dot" class="badge red hidden" style="position:absolute;top:-6px;right:-10px;min-width:16px;height:16px;font-size:9px;"></span></div>
+          <span style="font-size:11px;color:var(--t2);">Notifications</span>
+        </button>
+        <button onclick="openModal('bookmarks-modal');loadBookmarks()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 16px;background:var(--s2);border-radius:14px;flex:1;min-width:70px;">
+          <i class="fa-solid fa-bookmark" style="font-size:22px;color:var(--blue);"></i>
+          <span style="font-size:11px;color:var(--t2);">Saved Posts</span>
+        </button>
+        <button onclick="openWatchPartyHub()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 16px;background:var(--s2);border-radius:14px;flex:1;min-width:70px;">
+          <i class="fa-solid fa-clapperboard" style="font-size:22px;color:var(--purple);"></i>
+          <span style="font-size:11px;color:var(--t2);">Watch Party</span>
+        </button>
+        <button onclick="openContactsList()" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 16px;background:var(--s2);border-radius:14px;flex:1;min-width:70px;">
+          <i class="fa-solid fa-address-book" style="font-size:22px;color:var(--g);"></i>
+          <span style="font-size:11px;color:var(--t2);">Contacts</span>
+        </button>
+      </div>
+      <!-- Followers/Following count row -->
+      <div style="display:flex;justify-content:center;gap:28px;margin-top:14px;">
+        <div style="text-align:center;cursor:pointer;" onclick="if(me)openFollowList(me.uid,'followers')">
+          <div id="prof-followers-count" style="font-size:18px;font-weight:800;color:var(--t1);">0</div>
+          <div style="font-size:11px;color:var(--t2);">Followers</div>
+        </div>
+        <div style="width:1px;background:rgba(255,255,255,.08);margin:4px 0;"></div>
+        <div style="text-align:center;cursor:pointer;" onclick="if(me)openFollowList(me.uid,'following')">
+          <div id="prof-following-count" style="font-size:18px;font-weight:800;color:var(--t1);">0</div>
+          <div style="font-size:11px;color:var(--t2);">Following</div>
+        </div>
+      </div>
+      <div style="width:100%;margin-top:14px;"><div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:11px;color:var(--t2);">Profile completion</span><span id="prof-pct" style="font-size:11px;color:var(--g);font-weight:600;">0%</span></div><div class="prog-bar"><div id="prof-prog" class="prog-fill" style="width:0%;"></div></div></div>
+    </div>
+
+    <!-- Story Highlights Row (Instagram style rings) -->
+    <div id="prof-highlights-section" style="background:var(--s1);border-top:1px solid rgba(255,255,255,.04);">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px 0;">
+        <div style="font-size:11px;font-weight:700;color:var(--g);letter-spacing:.5px;">HIGHLIGHTS</div>
+        <button onclick="openModal('highlights-modal');loadHighlights()" style="font-size:11px;color:var(--blue);">Manage</button>
+      </div>
+      <div id="prof-highlights-row" style="display:flex;gap:16px;padding:10px 16px 14px;overflow-x:auto;-webkit-overflow-scrolling:touch;">
+        <!-- Filled by renderProfileHighlights() -->
+        <div id="prof-add-hl" style="text-align:center;cursor:pointer;flex-shrink:0;" onclick="openStatusCreator()">
+          <div style="width:58px;height:58px;border-radius:50%;background:var(--s2);display:flex;align-items:center;justify-content:center;border:2px dashed rgba(255,255,255,.2);">
+            <i class="fa-solid fa-plus" style="color:var(--g);font-size:20px;"></i>
+          </div>
+          <div style="font-size:10px;color:var(--t2);margin-top:5px;">New</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bio -->
+    <div style="background:var(--s1);margin-top:8px;padding:14px 16px;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;">
+        <div style="flex:1;"><div style="font-size:11px;color:var(--t2);font-weight:700;letter-spacing:.5px;margin-bottom:4px;">BIO</div><div id="prof-bio-show" style="color:var(--t1);font-size:14px;line-height:1.5;">Hey there! I am using MKJ Chat.</div></div>
+        <button onclick="editBio()" style="color:var(--g);font-size:12px;margin-left:10px;padding:6px 12px;background:var(--s2);border-radius:8px;flex-shrink:0;"><i class="fa-solid fa-pen" style="font-size:10px;margin-right:3px;"></i>Edit</button>
+      </div>
+      <!-- Bio link display -->
+      <div id="prof-bio-link-row" style="display:none;margin-bottom:10px;">
+        <a id="prof-bio-link-a" href="#" target="_blank" rel="noopener" style="color:var(--blue);font-size:13px;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:5px;"><i class="fa-solid fa-link" style="font-size:12px;"></i><span id="prof-bio-link-txt"></span></a>
+      </div>
+      <div style="font-size:11px;color:var(--t2);font-weight:700;letter-spacing:.5px;margin-bottom:6px;">BIRTHDAY</div>
+      <input type="date" id="birthday-inp" onchange="saveBirthday(this.value)" style="background:var(--s2);border-radius:10px;padding:8px 12px;font-size:14px;color:var(--t1);width:100%;border:none;">
+    </div>
+
+    <!-- Activity -->
+    <div style="background:var(--s1);margin-top:8px;">
+      <div class="sect">ACTIVITY</div>
+      <div onclick="openModal('points-modal');renderPoints()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#f59e0b22;"><i class="fa-solid fa-trophy" style="color:var(--amber);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">MKJ Points & Level</div><div id="points-preview" style="font-size:12px;color:var(--t2);">Loading…</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="openStarred()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#f59e0b22;"><i class="fa-solid fa-star" style="color:var(--amber);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Starred Messages</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="openSavedMessages()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#3b82f622;"><i class="fa-solid fa-bookmark" style="color:var(--blue);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Saved Messages</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="openNotifCenter()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#ef444422;"><i class="fa-solid fa-bell" style="color:var(--red);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Notifications</div></div></div><span id="notif-count-badge" style="background:var(--red);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;display:none;">0</span><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;margin-left:6px;"></i></div>
+    </div>
+
+    <!-- Social -->
+    <div style="background:var(--s1);margin-top:8px;">
+      <div class="sect">SOCIAL</div>
+      <div onclick="openModal('leaderboard-modal');loadLeaderboard()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#f59e0b22;"><i class="fa-solid fa-ranking-star" style="color:var(--amber);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Top Users</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="openModal('react-leaderboard-modal');loadReactLeaderboard()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#ef444422;"><i class="fa-solid fa-heart" style="color:var(--red);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Most Liked</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="showQR()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#3b82f622;"><i class="fa-solid fa-qrcode" style="color:var(--blue);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">My QR Code</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="openModal('who-viewed-modal');loadWhoViewed()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#7C3AED22;"><i class="fa-solid fa-eye" style="color:var(--purple);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Profile Views</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="shareInviteLink()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#00A88422;"><i class="fa-solid fa-user-plus" style="color:var(--g);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Invite Friends</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="openDeepLink()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#00A88422;"><i class="fa-solid fa-link" style="color:var(--g);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">My Profile Link</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="openBioLinkModal()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#3b82f622;"><i class="fa-solid fa-arrow-up-right-from-square" style="color:var(--blue);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Website / Bio Link</div><div id="bio-link-preview" style="font-size:12px;color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">Add a link to your bio</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="openModal('highlights-modal');loadHighlights()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#f59e0b22;"><i class="fa-solid fa-star" style="color:var(--amber);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Story Highlights</div><div style="font-size:12px;color:var(--t2);">Saved statuses on your profile</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="openSpaces()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#00A88422;"><i class="fa-solid fa-microphone-lines" style="color:var(--g);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">MKJ Spaces</div><div style="font-size:12px;color:var(--t2);">Live community audio</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+    </div>
+
+    <!-- Tools -->
+    <div style="background:var(--s1);margin-top:8px;">
+      <div class="sect">TOOLS</div>
+      <div onclick="openModal('sched-cal-modal');renderSchedList()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#3b82f622;"><i class="fa-solid fa-calendar-check" style="color:var(--blue);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Scheduled Messages</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="openModal('quick-replies-modal');renderQuickReplies()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#f59e0b22;"><i class="fa-solid fa-bolt" style="color:var(--amber);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Quick Replies</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div onclick="openModal('multi-acct-modal');renderAccounts()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#7C3AED22;"><i class="fa-solid fa-users-between-lines" style="color:var(--purple);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Switch Account</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+    </div>
+
+    <!-- Privacy -->
+    <div style="background:var(--s1);margin-top:8px;">
+      <div class="sect">PRIVACY & SECURITY</div>
+      <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#3b82f622;"><i class="fa-solid fa-eye" style="color:#3b82f6;"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Hide Online Status</div></div></div><div id="tog-online" class="toggle" onclick="togglePrivacy('online')"></div></div>
+      <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#f59e0b22;"><i class="fa-solid fa-clock" style="color:var(--amber);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Hide Last Seen</div></div></div><div id="tog-lastseen" class="toggle" onclick="togglePrivacy('lastseen')"></div></div>
+      <div class="feat-row" style="cursor:pointer;" onclick="openModal('chat-lock-modal')"><div class="feat-left"><div class="feat-icon" style="background:#00A88422;"><i class="fa-solid fa-lock" style="color:var(--g);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Chat Lock (PIN)</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#7C3AED22;"><i class="fa-solid fa-shield" style="color:var(--purple);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Two-Factor Auth</div></div></div><div id="tog-2fa" class="toggle" onclick="toggle2FA()"></div></div>
+      <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#ef444422;"><i class="fa-solid fa-user-shield" style="color:var(--red);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Privacy Screen</div></div></div><div id="tog-privacy-screen" class="toggle" onclick="togglePrivacyScreen()"></div></div>
+    </div>
+
+    <!-- Notifications -->
+    <div style="background:var(--s1);margin-top:8px;">
+      <div class="sect">NOTIFICATIONS</div>
+      <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#f59e0b22;"><i class="fa-solid fa-moon" style="color:var(--amber);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Do Not Disturb</div><div id="dnd-sub" style="font-size:12px;color:var(--t2);">Silence notifications</div></div></div><div id="tog-dnd" class="toggle" onclick="toggleDND()"></div></div>
+      <div id="dnd-time-row" class="feat-row hidden"><div class="feat-left"><div class="feat-icon" style="background:#1F2C34;"><i class="fa-solid fa-clock" style="color:var(--t2);"></i></div><div style="display:flex;gap:8px;align-items:center;"><input type="time" id="dnd-from" style="background:var(--s2);border-radius:8px;padding:5px 8px;font-size:13px;color:var(--t1);" onchange="saveDNDTime()"><span style="color:var(--t2);">to</span><input type="time" id="dnd-to" style="background:var(--s2);border-radius:8px;padding:5px 8px;font-size:13px;color:var(--t1);" onchange="saveDNDTime()"></div></div></div>
+      <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#00A88422;"><i class="fa-solid fa-bell" style="color:var(--g);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Notification Sound</div></div></div><select id="notif-sound-sel" onchange="setNotifSound(this.value)" style="background:var(--s2);color:var(--t1);border:none;border-radius:8px;padding:6px 10px;font-size:13px;"><option value="default">Default</option><option value="chime">Chime</option><option value="ping">Ping</option><option value="pop">Pop</option><option value="silent">Silent</option></select></div>
+    </div>
+
+    <!-- Appearance -->
+    <div style="background:var(--s1);margin-top:8px;">
+      <div class="sect">APPEARANCE</div>
+      <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#1F2C34;"><i class="fa-solid fa-circle-half-stroke" style="color:var(--t1);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Dark Mode</div></div></div><div id="tog-theme" class="toggle on" onclick="toggleTheme()"></div></div>
+      <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#1F2C34;"><i class="fa-solid fa-text-height" style="color:var(--t2);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Font Size</div></div></div><div style="display:flex;gap:8px;"><button onclick="setFontSize(13)" style="width:32px;height:32px;border-radius:50%;background:var(--s2);color:var(--t1);font-size:12px;font-weight:700;">A</button><button onclick="setFontSize(15)" style="width:32px;height:32px;border-radius:50%;background:var(--s2);color:var(--t1);font-size:15px;font-weight:700;">A</button><button onclick="setFontSize(18)" style="width:32px;height:32px;border-radius:50%;background:var(--s2);color:var(--t1);font-size:18px;font-weight:700;">A</button></div></div>
+      <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#ef444422;"><i class="fa-solid fa-right-from-bracket" style="color:var(--red);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Auto Logout</div><div style="font-size:12px;color:var(--t2);">After 60 min inactivity</div></div></div><div id="tog-autologout" class="toggle" onclick="toggleAutoLogout()"></div></div>
+    </div>
+
+    <!-- Translation -->
+    <div style="background:var(--s1);margin-top:8px;">
+      <div class="sect">TRANSLATION</div>
+      <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#3b82f622;"><i class="fa-solid fa-language" style="color:var(--blue);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Translate messages into</div><div style="font-size:12px;color:var(--t2);">Used when you tap 🌐 Translate on a message</div></div></div><select id="translate-lang-setting" class="lang-select" onchange="setMyPreferredLanguage(this.value)" style="background:var(--s2);color:var(--t1);border:none;border-radius:8px;padding:6px 10px;font-size:13px;max-width:130px;"></select></div>
+    </div>
+
+    <!-- Help -->
+    <div style="background:var(--s1);margin-top:8px;">
+      <div class="sect">HELP & SUPPORT</div>
+      <div class="feat-row" style="cursor:pointer;" onclick="openModal('faq-modal')"><div class="feat-left"><div class="feat-icon" style="background:#3b82f622;"><i class="fa-solid fa-circle-question" style="color:#3b82f6;"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">FAQ</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div class="feat-row" style="cursor:pointer;" onclick="contactUs()"><div class="feat-left"><div class="feat-icon" style="background:#00A88422;"><i class="fa-solid fa-envelope" style="color:var(--g);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Contact Us</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div class="feat-row" style="cursor:pointer;" onclick="reportBug()"><div class="feat-left"><div class="feat-icon" style="background:#f59e0b22;"><i class="fa-solid fa-bug" style="color:var(--amber);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Report a Bug</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div class="feat-row" style="cursor:pointer;" onclick="openModal('privacy-modal')"><div class="feat-left"><div class="feat-icon" style="background:#7C3AED22;"><i class="fa-solid fa-file-shield" style="color:var(--purple);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Privacy Policy</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+      <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#1F2C34;"><i class="fa-solid fa-info-circle" style="color:var(--t2);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">About MKJ Chat</div><div style="font-size:12px;color:var(--t2);">v7.0.0 · Fast · Secure · Private</div></div></div></div>
+    </div>
+
+    <!-- CEO Section (shown by JS) -->
+    <div id="ceo-section-wrap" style="display:none;background:var(--s1);margin-top:8px;">
+      <div class="sect">CEO TOOLS</div>
+      <div onclick="openModal('mod-dashboard-modal');loadModDashboard()" class="feat-row" style="cursor:pointer;"><div class="feat-left"><div class="feat-icon" style="background:#ef444422;"><i class="fa-solid fa-shield-halved" style="color:var(--red);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Moderation Dashboard</div><div style="font-size:12px;color:var(--t2);">Reports · Users · Community</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
+    </div>
+
+    <div style="background:var(--s1);margin-top:8px;padding:16px;">
+      <button onclick="doLogout()" style="width:100%;padding:14px;border-radius:12px;color:var(--red);font-weight:700;font-size:15px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.06);"><i class="fa-solid fa-right-from-bracket" style="margin-right:8px;"></i>Log Out</button>
+    </div>
+    <div style="height:20px;"></div>
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <div id="bottom-nav" style="display:flex;background:var(--s1);border-top:1px solid rgba(255,255,255,.05);flex-shrink:0;padding-bottom:env(safe-area-inset-bottom);">
+    <div class="nav-btn active" id="nav-chats" onclick="switchTab('chats')">
+      <div style="position:relative;"><span class="nav-icon"><i class="fa-solid fa-message"></i></span><span id="priv-nb" class="badge hidden" style="position:absolute;top:-6px;right:-10px;min-width:16px;height:16px;font-size:9px;"></span></div>
+      <span>Chats</span>
+    </div>
+    <div class="nav-btn" id="nav-feed" onclick="switchTab('feed')">
+      <span class="nav-icon"><i class="fa-solid fa-newspaper"></i></span>
+      <span>Feed</span>
+    </div>
+    <div class="nav-btn" id="nav-global" onclick="switchTab('global')">
+      <div style="position:relative;"><span class="nav-icon"><i class="fa-solid fa-earth-africa"></i></span><span id="g-nb" class="badge hidden" style="position:absolute;top:-6px;right:-10px;min-width:16px;height:16px;font-size:9px;"></span></div>
+      <span>Community</span>
+    </div>
+    <div class="nav-btn" id="nav-status" onclick="switchTab('status')">
+      <div style="position:relative;"><span class="nav-icon"><i class="fa-solid fa-circle-dot"></i></span><span id="status-nb" class="badge hidden" style="position:absolute;top:-6px;right:-10px;min-width:16px;height:16px;font-size:9px;"></span></div>
+      <span>Updates</span>
+    </div>
+    <div class="nav-btn" id="nav-profile" onclick="switchTab('profile')">
+      <div style="position:relative;"><span class="nav-icon"><i class="fa-solid fa-circle-user"></i></span><span id="notif-bell-badge" class="badge red hidden" style="position:absolute;top:-6px;right:-10px;min-width:16px;height:16px;font-size:9px;"></span></div>
+      <span>Profile</span>
+    </div>
+  </div>
+</div><!-- end #root -->
+
+<!-- ══ NOTIFICATION CENTRE ══ -->
+<div id="notif-center-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('notif-center-modal')">
+<div class="modal-box" style="max-height:85vh;overflow-y:auto;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+    <span style="font-size:17px;font-weight:700;color:var(--t1);">🔔 Notifications</span>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <button onclick="clearAllNotifs()" style="font-size:12px;color:var(--t2);">Clear all</button>
+      <button onclick="closeModal('notif-center-modal')" style="color:var(--t2);font-size:26px;">×</button>
+    </div>
+  </div>
+  <div id="notif-list" style="padding-top:8px;"></div>
+</div></div>
+
+<!-- ══ BOOKMARKS / SAVED POSTS ══ -->
+<div id="bookmarks-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('bookmarks-modal')">
+<div class="modal-box" style="max-height:88vh;overflow-y:auto;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <span style="font-size:17px;font-weight:700;color:var(--t1);">🔖 Saved Posts</span>
+    <button onclick="closeModal('bookmarks-modal')" style="color:var(--t2);font-size:26px;">×</button>
+  </div>
+  <div id="bookmarks-list"></div>
+</div></div>
+
+<!-- ══ CONTACTS — saved names, feeds status privacy ══ -->
+<div id="contacts-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('contacts-modal')">
+<div class="modal-box" style="max-height:88vh;overflow-y:auto;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <span style="font-size:17px;font-weight:700;color:var(--t1);">📇 My Contacts</span>
+    <button onclick="closeModal('contacts-modal')" style="color:var(--t2);font-size:26px;">×</button>
+  </div>
+  <p style="font-size:12px;color:var(--t2);margin-bottom:12px;">Save people here to give them a name only you see, and to control who sees your statuses.</p>
+  <div id="contacts-list"></div>
+</div></div>
+
+<!-- ══ EXPLORE / TRENDING ══ -->
+<div id="explore-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('explore-modal')">
+<div class="modal-box" style="max-height:88vh;overflow-y:auto;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <span style="font-size:17px;font-weight:700;color:var(--t1);">🔥 Explore</span>
+    <button onclick="closeModal('explore-modal')" style="color:var(--t2);font-size:26px;">×</button>
+  </div>
+  <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:10px;margin-bottom:12px;">
+    <button class="explore-tag active" onclick="setExploreTab('trending',this)">🔥 Trending</button>
+    <button class="explore-tag" onclick="setExploreTab('people',this)">👥 People</button>
+    <button class="explore-tag" onclick="setExploreTab('liked',this)">❤️ Most Liked</button>
+  </div>
+  <div id="explore-content"></div>
+</div></div>
+
+<!-- ══ WATCH PARTY ══ -->
+<!-- ══ WATCH PARTY HUB — list of your parties, replaces jumping straight into one shared room ══ -->
+<div id="watch-party-hub-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('watch-party-hub-modal')">
+<div class="modal-box" style="max-height:88vh;overflow-y:auto;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <span style="font-size:17px;font-weight:700;color:var(--t1);">🎬 Watch Parties</span>
+    <button onclick="closeModal('watch-party-hub-modal')" style="color:var(--t2);font-size:26px;">×</button>
+  </div>
+  <button onclick="createWatchPartyStart()" style="width:100%;padding:12px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;margin-bottom:16px;"><i class="fa-solid fa-plus" style="margin-right:6px;"></i>Create New Watch Party</button>
+  <div id="wp-hub-pending"></div>
+  <div id="wp-hub-active"></div>
+  <div id="wp-hub-empty" class="hidden" style="text-align:center;color:var(--t2);font-size:13px;padding:24px;">No watch parties yet. Create one and invite your friends 🎬</div>
+</div></div>
+
+<!-- ══ WATCH PARTY INVITE PICKER — reused for both creating a new party and inviting more people into an existing one ══ -->
+<div id="wp-invite-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('wp-invite-modal')">
+<div class="modal-box" style="max-height:88vh;overflow-y:auto;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <span id="wp-invite-title" style="font-size:17px;font-weight:700;color:var(--t1);">Invite Contacts</span>
+    <button onclick="closeModal('wp-invite-modal')" style="color:var(--t2);font-size:26px;">×</button>
+  </div>
+  <p style="font-size:12px;color:var(--t2);margin-bottom:12px;">Only people you've saved as a contact can be invited directly.</p>
+  <div id="wp-invite-list" style="max-height:50vh;overflow-y:auto;margin-bottom:14px;"></div>
+  <button onclick="confirmWatchPartyInvite()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;">Send Invites</button>
+</div></div>
+
+<div id="watch-party-modal" class="modal-bg hidden" onclick="if(event.target===this)leaveWatchParty()">
+<div class="modal-box" style="padding:0;overflow:hidden;max-height:92vh;">
+  <div style="padding:14px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.06);">
+    <div style="min-width:0;">
+      <div style="font-size:16px;font-weight:700;color:var(--t1);">🎬 <span id="wp-room-title">Watch Party</span></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+      <button onclick="inviteMoreToWatchParty()" style="color:var(--g);font-size:14px;" title="Invite more people"><i class="fa-solid fa-user-plus"></i></button>
+      <button onclick="leaveWatchParty()" style="color:var(--t2);font-size:24px;">×</button>
+    </div>
+  </div>
+  <!-- YouTube embed — a real YT.Player gets attached here by JS, replacing this div, so playback can be controlled/synced programmatically -->
+  <div style="background:#000;position:relative;padding-bottom:56.25%;flex-shrink:0;">
+    <div id="wp-yt-target" style="position:absolute;inset:0;width:100%;height:100%;"></div>
+    <div id="wp-yt-placeholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--t2);font-size:13px;">Paste a YouTube URL below to start watching together</div>
+  </div>
+  <!-- Controls -->
+  <div style="padding:10px 14px;background:var(--s1);display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,.06);">
+    <input id="wp-yt-inp" placeholder="Paste YouTube URL…" style="flex:1;padding:9px 12px;background:var(--s2);border-radius:10px;font-size:13px;color:var(--t1);">
+    <button onclick="wpLoadVideo()" style="padding:9px 14px;background:var(--g);border-radius:10px;color:#fff;font-weight:700;font-size:13px;">Load</button>
+  </div>
+  <!-- Viewers -->
+  <div id="wp-viewers" style="padding:8px 14px;display:flex;gap:8px;overflow-x:auto;border-bottom:1px solid rgba(255,255,255,.06);min-height:48px;align-items:center;">
+    <span style="font-size:12px;color:var(--t2);">Viewers:</span>
+  </div>
+  <!-- Chat -->
+  <div id="wp-chat" style="flex:1;overflow-y:auto;padding:8px 14px;max-height:160px;"></div>
+  <div style="padding:8px 14px;display:flex;gap:8px;border-top:1px solid rgba(255,255,255,.06);">
+    <input id="wp-msg-inp" placeholder="Say something…" style="flex:1;padding:9px 12px;background:var(--s2);border-radius:10px;font-size:13px;color:var(--t1);" onkeydown="if(event.key==='Enter')wpSendMsg()">
+    <button onclick="wpSendMsg()" style="padding:9px 14px;background:var(--g);border-radius:10px;color:#fff;font-weight:700;font-size:13px;"><i class="fa-solid fa-paper-plane"></i></button>
+  </div>
+</div></div>
+
+<!-- ══ STATUS MUSIC PICKER ══ -->
+<div id="status-music-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('status-music-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <span style="font-size:17px;font-weight:700;color:var(--t1);">🎵 Add Music to Status</span>
+    <button onclick="closeModal('status-music-modal')" style="color:var(--t2);font-size:26px;">×</button>
+  </div>
+  <p style="font-size:13px;color:var(--t2);margin-bottom:14px;">Paste a public audio URL (SoundCloud, direct mp3 link, etc.)</p>
+  <input id="status-music-url" placeholder="https://…" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);border:none;margin-bottom:10px;" type="url">
+  <input id="status-music-title" placeholder="Song name (optional)" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);border:none;margin-bottom:14px;">
+  <div style="margin-bottom:14px;">
+    <p style="font-size:11px;color:var(--t2);font-weight:700;margin-bottom:8px;letter-spacing:.5px;">OR CHOOSE A VIBE</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <button onclick="selectVibeMusic('chill')" style="padding:10px;background:var(--s2);border-radius:10px;font-size:13px;color:var(--t1);text-align:left;"><span style="font-size:18px;margin-right:6px;">😌</span>Chill</button>
+      <button onclick="selectVibeMusic('hype')" style="padding:10px;background:var(--s2);border-radius:10px;font-size:13px;color:var(--t1);text-align:left;"><span style="font-size:18px;margin-right:6px;">🔥</span>Hype</button>
+      <button onclick="selectVibeMusic('love')" style="padding:10px;background:var(--s2);border-radius:10px;font-size:13px;color:var(--t1);text-align:left;"><span style="font-size:18px;margin-right:6px;">❤️</span>Love</button>
+      <button onclick="selectVibeMusic('sad')" style="padding:10px;background:var(--s2);border-radius:10px;font-size:13px;color:var(--t1);text-align:left;"><span style="font-size:18px;margin-right:6px;">😢</span>Sad</button>
+    </div>
+  </div>
+  <button onclick="attachMusicToStatus()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;">Attach Music 🎵</button>
+</div></div>
+
+<!-- FEED POST MUSIC — separate ids from the status music modal on purpose, so the two never collide -->
+<div id="feed-music-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('feed-music-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <span style="font-size:17px;font-weight:700;color:var(--t1);">🎵 Add Music to Post</span>
+    <button onclick="closeModal('feed-music-modal')" style="color:var(--t2);font-size:26px;">×</button>
+  </div>
+  <p style="font-size:13px;color:var(--t2);margin-bottom:14px;">Paste a public audio URL (SoundCloud, direct mp3 link, etc.)</p>
+  <input id="feed-music-url" placeholder="https://…" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);border:none;margin-bottom:10px;" type="url">
+  <input id="feed-music-title" placeholder="Song name (optional)" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);border:none;margin-bottom:14px;">
+  <div style="margin-bottom:14px;">
+    <p style="font-size:11px;color:var(--t2);font-weight:700;margin-bottom:8px;letter-spacing:.5px;">OR CHOOSE A VIBE</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <button onclick="selectFeedVibeMusic('chill')" style="padding:10px;background:var(--s2);border-radius:10px;font-size:13px;color:var(--t1);text-align:left;"><span style="font-size:18px;margin-right:6px;">😌</span>Chill</button>
+      <button onclick="selectFeedVibeMusic('hype')" style="padding:10px;background:var(--s2);border-radius:10px;font-size:13px;color:var(--t1);text-align:left;"><span style="font-size:18px;margin-right:6px;">🔥</span>Hype</button>
+      <button onclick="selectFeedVibeMusic('love')" style="padding:10px;background:var(--s2);border-radius:10px;font-size:13px;color:var(--t1);text-align:left;"><span style="font-size:18px;margin-right:6px;">❤️</span>Love</button>
+      <button onclick="selectFeedVibeMusic('sad')" style="padding:10px;background:var(--s2);border-radius:10px;font-size:13px;color:var(--t1);text-align:left;"><span style="font-size:18px;margin-right:6px;">😢</span>Sad</button>
+    </div>
+  </div>
+  <button onclick="attachMusicToFeedPost()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;">Attach Music 🎵</button>
+</div></div>
+
+<!-- FEED VIEW — lives OUTSIDE #root so overflow:hidden cannot clip it -->
+<div id="v-feed">
+  <div style="position:fixed;top:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:linear-gradient(to bottom,rgba(0,0,0,.6),transparent);pointer-events:none;">
+    <div style="display:flex;gap:0;pointer-events:all;">
+      <button id="feed-tab-foryou" onclick="setFeedTab('foryou')" style="color:#fff;font-weight:700;font-size:15px;padding:6px 14px;border-bottom:2px solid #fff;">For You</button>
+      <button id="feed-tab-following" onclick="setFeedTab('following')" style="color:rgba(255,255,255,.5);font-weight:600;font-size:15px;padding:6px 14px;border-bottom:2px solid transparent;">Following</button>
+    </div>
+    <div style="display:flex;gap:8px;pointer-events:all;">
+      <button onclick="openModal('explore-modal');loadExplore('trending')" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.15);backdrop-filter:blur(8px);color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-compass"></i></button>
+      <button onclick="openModal('bookmarks-modal');loadBookmarks()" style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.15);backdrop-filter:blur(8px);color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-bookmark"></i></button>
+      <button onclick="openModal('create-post-modal')" style="background:rgba(255,255,255,.15);backdrop-filter:blur(8px);color:#fff;padding:7px 14px;border-radius:20px;font-size:13px;font-weight:700;"><i class="fa-solid fa-plus" style="margin-right:4px;"></i>Post</button>
+    </div>
+  </div>
+  <div id="feed-list"></div>
+  <!-- Mini floating nav row so user can switch tabs from feed -->
+  <div style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;z-index:20;display:flex;background:rgba(0,0,0,.7);backdrop-filter:blur(12px);border-top:1px solid rgba(255,255,255,.08);padding-bottom:env(safe-area-inset-bottom);">
+    <div class="nav-btn" onclick="switchTab('chats')" style="color:rgba(255,255,255,.6);"><span class="nav-icon"><i class="fa-solid fa-message"></i></span><span style="font-size:10px;font-weight:500;">Chats</span></div>
+    <div class="nav-btn active" style="color:#fff;"><span class="nav-icon"><i class="fa-solid fa-newspaper"></i></span><span style="font-size:10px;font-weight:500;">Feed</span></div>
+    <div class="nav-btn" onclick="switchTab('global')" style="color:rgba(255,255,255,.6);"><span class="nav-icon"><i class="fa-solid fa-earth-africa"></i></span><span style="font-size:10px;font-weight:500;">Community</span></div>
+    <div class="nav-btn" onclick="switchTab('status')" style="color:rgba(255,255,255,.6);"><span class="nav-icon"><i class="fa-solid fa-circle-dot"></i></span><span style="font-size:10px;font-weight:500;">Updates</span></div>
+    <div class="nav-btn" onclick="switchTab('profile')" style="color:rgba(255,255,255,.6);"><span class="nav-icon"><i class="fa-solid fa-circle-user"></i></span><span style="font-size:10px;font-weight:500;">Profile</span></div>
+  </div>
+</div>
+
+<!-- STATUS VIEWER -->
+<div id="status-viewer" class="hidden" style="position:fixed;top:0;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#000;z-index:800;display:flex;flex-direction:column;">
+  <div style="padding:12px 16px 0;flex-shrink:0;">
+    <div id="sv-bars" style="display:flex;gap:4px;margin-bottom:12px;"></div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <img id="sv-av" src="" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">
+      <div><div id="sv-name" style="font-weight:600;color:#fff;font-size:14px;"></div><div id="sv-time" style="font-size:11px;color:rgba(255,255,255,.6);"></div></div>
+      <button onclick="closeStatusViewer()" style="margin-left:auto;color:rgba(255,255,255,.7);font-size:24px;"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+  </div>
+  <div id="sv-content" style="flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;"></div>
+  <div id="sv-caption" style="padding:12px 16px;font-size:15px;color:#fff;text-align:center;background:linear-gradient(transparent,rgba(0,0,0,.6));min-height:44px;"></div>
+  <!-- Status Reactions -->
+  <div id="sv-react-row" style="padding:4px 16px 0;display:flex;gap:8px;flex-wrap:wrap;" ></div>
+  <div style="padding:10px 16px 20px;display:flex;gap:10px;flex-shrink:0;">
+    <button onclick="prevStatus()" style="flex:1;padding:10px;background:rgba(255,255,255,.12);border-radius:12px;color:#fff;font-size:13px;font-weight:600;">‹ Prev</button>
+    <button onclick="sendStatusReact()" style="padding:10px 14px;background:rgba(255,255,255,.12);border-radius:12px;color:#fff;font-size:18px;">❤️</button>
+    <button onclick="replyToStatus(svUid,svItems[svIdx]?.username||'',svItems[svIdx]?.mkjNumber||'',svItems[svIdx]?.photoURL||'')" style="padding:10px 14px;background:rgba(255,255,255,.12);border-radius:12px;color:#fff;font-size:14px;font-weight:600;">↩ Reply</button>
+    <button id="sv-views-btn" onclick="openModal('status-viewers-modal')" class="hidden" style="flex:1;padding:10px;background:rgba(255,255,255,.12);border-radius:12px;color:#fff;font-size:13px;font-weight:600;"><i class="fa-solid fa-eye" style="margin-right:4px;"></i><span id="sv-vc">0</span> views</button>
+    <button onclick="nextStatus()" style="flex:1;padding:10px;background:rgba(255,255,255,.12);border-radius:12px;color:#fff;font-size:13px;font-weight:600;">Next ›</button>
+  </div>
+</div>
+
+<!-- CALL SCREEN (voice + video, 1:1) -->
+<div id="call-screen" class="hidden" style="position:fixed;top:0;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;z-index:9600;background:#0b141a;display:flex;flex-direction:column;overflow:hidden;">
+  <video id="call-remote-video" autoplay playsinline style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none;background:#000;"></video>
+  <video id="call-local-video" autoplay playsinline muted style="position:absolute;bottom:110px;right:16px;width:96px;height:136px;border-radius:14px;object-fit:cover;border:2px solid rgba(255,255,255,.3);display:none;z-index:2;"></video>
+  <audio id="call-remote-audio" autoplay style="display:none;"></audio>
+  <div id="call-info" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;position:relative;z-index:1;">
+    <img id="call-avatar" src="" style="width:110px;height:110px;border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,.2);">
+    <div id="call-name" style="color:#fff;font-size:22px;font-weight:700;"></div>
+    <div id="call-status-text" style="color:rgba(255,255,255,.6);font-size:14px;"></div>
+  </div>
+  <div style="padding:20px 24px calc(24px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:18px;position:relative;z-index:2;">
+    <button id="call-accept-btn" onclick="acceptIncomingCall()" class="hidden" style="width:60px;height:60px;border-radius:50%;background:var(--g);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-phone" style="color:#fff;font-size:24px;"></i></button>
+    <button id="call-mute-btn" onclick="toggleCallMute()" class="hidden" style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-microphone" style="color:#fff;font-size:20px;"></i></button>
+    <button id="call-cam-btn" onclick="toggleCallCamera()" class="hidden" style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-video" style="color:#fff;font-size:20px;"></i></button>
+    <button id="call-speaker-btn" onclick="toggleCallSpeaker()" class="hidden" style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-volume-high" style="color:#fff;font-size:20px;"></i></button>
+    <button id="call-end-btn" onclick="endCall()" style="width:60px;height:60px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-phone" style="color:#fff;font-size:24px;transform:rotate(135deg);"></i></button>
+  </div>
+</div>
+
+<!-- GROUP CALL SCREEN (multi-participant, new — separate from 1:1 call screen above) -->
+<div id="gcall-screen" class="hidden" style="position:fixed;top:0;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;z-index:9650;background:#0b141a;display:flex;flex-direction:column;overflow:hidden;">
+  <div style="padding:14px 16px 8px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+    <div>
+      <div id="gcall-title" style="color:#fff;font-size:15px;font-weight:700;"></div>
+      <div id="gcall-status" style="color:rgba(255,255,255,.55);font-size:12px;"></div>
+    </div>
+  </div>
+  <div id="gcall-audio-banner" class="hidden" style="margin:0 16px 10px;padding:12px 16px;background:#E8B44A;border-radius:12px;display:flex;align-items:center;gap:10px;font-weight:700;color:#0D1512;font-size:14px;flex-shrink:0;"><i class="fa-solid fa-volume-xmark" style="font-size:18px;"></i><span>Tap here — audio is blocked until you tap</span></div>
+  <div id="gcall-grid" style="flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 10px 10px;overflow-y:auto;align-content:flex-start;"></div>
+  <div style="padding:16px 20px calc(20px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:16px;flex-shrink:0;">
+    <button id="gcall-mute-btn" onclick="toggleGCallMute()" style="width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-microphone" style="color:#fff;font-size:19px;"></i></button>
+    <button id="gcall-cam-btn" onclick="toggleGCallCamera()" style="width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-video" style="color:#fff;font-size:19px;"></i></button>
+    <button onclick="leaveGroupCall()" style="width:60px;height:60px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-phone" style="color:#fff;font-size:24px;transform:rotate(135deg);"></i></button>
+  </div>
+</div>
+
+<!-- MKJ SPACES — pre-join hub (idle / scheduled+countdown / live-but-not-joined) -->
+<div id="spaces-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('spaces-modal')">
+<div class="modal-box" style="text-align:center;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🎙 MKJ Spaces</span><button onclick="closeModal('spaces-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div id="spaces-hub-content"></div>
+</div>
+</div>
+
+<!-- MKJ SPACES — schedule picker (CEO only) -->
+<div id="spaces-schedule-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('spaces-schedule-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">Schedule a Space</span><button onclick="closeModal('spaces-schedule-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <p style="font-size:12px;color:var(--t2);margin-bottom:8px;">When</p>
+  <input type="datetime-local" id="spaces-sched-time" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);margin-bottom:14px;border:none;">
+  <p style="font-size:12px;color:var(--t2);margin-bottom:8px;">Type</p>
+  <div style="display:flex;gap:8px;margin-bottom:16px;">
+    <button id="spaces-sched-audio" onclick="pickScheduleType('audio')" style="flex:1;padding:12px;background:var(--g);border-radius:10px;color:#fff;font-weight:700;"><i class="fa-solid fa-phone" style="margin-right:6px;"></i>Audio</button>
+    <button id="spaces-sched-video" onclick="pickScheduleType('video')" style="flex:1;padding:12px;background:var(--s2);border-radius:10px;color:var(--t1);font-weight:700;"><i class="fa-solid fa-video" style="margin-right:6px;"></i>Video</button>
+  </div>
+  <button onclick="scheduleSpace()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;">Schedule</button>
+</div>
+</div>
+
+<!-- MKJ SPACES — live session screen -->
+<div id="spaces-live-screen" class="hidden" style="position:fixed;top:0;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;z-index:9700;background:#0b141a;display:flex;flex-direction:column;overflow:hidden;">
+  <div style="padding:14px 16px 8px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+    <div>
+      <div style="color:#fff;font-size:15px;font-weight:700;">🎙 MKJ Space</div>
+      <div id="spaces-live-status" style="color:rgba(255,255,255,.55);font-size:12px;"></div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button id="spaces-type-toggle" onclick="toggleSpaceType()" class="hidden" style="font-size:12px;color:#0D1512;background:#E8B44A;padding:6px 12px;border-radius:20px;font-weight:700;"></button>
+      <button id="spaces-end-btn" onclick="endSpace()" class="hidden" style="font-size:12px;color:#fff;background:var(--red);padding:6px 12px;border-radius:20px;font-weight:700;">End</button>
+    </div>
+  </div>
+
+  <div id="spaces-audio-banner" class="hidden" style="margin:0 16px 8px;font-size:12px;color:#0D1512;background:#E8B44A;padding:8px 14px;border-radius:10px;font-weight:700;text-align:center;"></div>
+
+  <div style="padding:0 16px 8px;font-size:11px;font-weight:700;letter-spacing:1px;color:#8FA79D;text-transform:uppercase;">Speaking</div>
+  <div id="spaces-speakers-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:0 16px 14px;"></div>
+
+  <div style="padding:0 16px 8px;display:flex;align-items:center;justify-content:space-between;">
+    <span style="font-size:11px;font-weight:700;letter-spacing:1px;color:#8FA79D;text-transform:uppercase;">Listening</span>
+    <span id="spaces-listener-count" style="font-size:11px;color:#8FA79D;"></span>
+  </div>
+  <div id="spaces-listeners-grid" style="flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:0 16px;overflow-y:auto;align-content:flex-start;"></div>
+
+  <div id="spaces-handqueue-wrap" class="hidden" style="margin:10px 16px 0;background:#152420;border-radius:14px;padding:12px;max-height:140px;overflow-y:auto;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#E8B44A;text-transform:uppercase;margin-bottom:8px;">✋ Raised hands</div>
+    <div id="spaces-handqueue-list"></div>
+  </div>
+
+  <div style="padding:14px 20px calc(18px + env(safe-area-inset-bottom));display:flex;justify-content:center;gap:14px;flex-shrink:0;">
+    <button id="spaces-raise-btn" onclick="toggleRaiseHand()" class="hidden" style="width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-hand" style="color:#fff;font-size:19px;"></i></button>
+    <button id="spaces-mute-btn" onclick="toggleSpacesMute()" class="hidden" style="width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-microphone" style="color:#fff;font-size:19px;"></i></button>
+    <button id="spaces-cam-btn" onclick="toggleSpacesCamera()" class="hidden" style="width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-video" style="color:#fff;font-size:19px;"></i></button>
+    <button onclick="leaveSpacesSession()" style="width:60px;height:60px;border-radius:50%;background:var(--red);display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-right-from-bracket" style="color:#fff;font-size:22px;"></i></button>
+  </div>
+</div>
+
+<!-- CHAT LOCK SCREEN -->
+<div id="chat-lock-screen" class="hidden" style="position:fixed;top:0;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;z-index:9500;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;">
+  <div style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,var(--g),var(--dg));display:flex;align-items:center;justify-content:center;margin-bottom:24px;">
+    <i class="fa-solid fa-lock" style="color:#fff;font-size:36px;"></i>
+  </div>
+  <h2 style="color:var(--t1);font-size:22px;font-weight:700;margin-bottom:8px;">MKJ Chat</h2>
+  <p style="color:var(--t2);margin-bottom:32px;font-size:14px;">Enter your 4-digit PIN to unlock</p>
+  <div style="display:flex;gap:12px;margin-bottom:28px;">
+    <input class="pin-box" id="lk1" type="password" maxlength="1" inputmode="numeric" oninput="pinNav(this,'lk2')">
+    <input class="pin-box" id="lk2" type="password" maxlength="1" inputmode="numeric" oninput="pinNav(this,'lk3')">
+    <input class="pin-box" id="lk3" type="password" maxlength="1" inputmode="numeric" oninput="pinNav(this,'lk4')">
+    <input class="pin-box" id="lk4" type="password" maxlength="1" inputmode="numeric" oninput="pinNav(this,null)">
+  </div>
+  <button onclick="checkPin()" style="padding:14px 48px;background:var(--g);border-radius:14px;color:#fff;font-weight:700;font-size:16px;">Unlock</button>
+  <button onclick="forgotPin()" style="margin-top:16px;color:var(--t2);font-size:13px;background:none;">Forgot PIN?</button>
+</div>
+
+<!-- EMOJI PICKER (context) -->
+<div id="emoji-picker" class="hidden" style="position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center;" onclick="if(event.target===this)hidePicker()">
+<div style="width:100%;max-width:480px;background:#152420;border-radius:26px 26px 0 0;padding:14px 0 max(20px,env(safe-area-inset-bottom));box-shadow:0 -20px 60px rgba(0,0,0,.5);font-family:'Manrope','Inter',-apple-system,sans-serif;">
+  <div style="width:38px;height:4px;background:#28453A;border-radius:3px;margin:0 auto 16px;"></div>
+
+  <div style="position:relative;margin:0 16px 18px;border-radius:20px;padding:16px 8px;background:radial-gradient(ellipse at center, rgba(51,224,172,.14) 0%, rgba(51,224,172,0) 72%);">
+    <div style="display:flex;justify-content:space-between;padding:0 6px;">
+      <button onclick="pickReact('❤️')" style="background:none;border:none;font-size:25px;padding:6px;border-radius:14px;">❤️</button>
+      <button onclick="pickReact('😂')" style="background:none;border:none;font-size:25px;padding:6px;border-radius:14px;">😂</button>
+      <button onclick="pickReact('😮')" style="background:none;border:none;font-size:25px;padding:6px;border-radius:14px;">😮</button>
+      <button onclick="pickReact('😢')" style="background:none;border:none;font-size:25px;padding:6px;border-radius:14px;">😢</button>
+      <button onclick="pickReact('🔥')" style="background:none;border:none;font-size:25px;padding:6px;border-radius:14px;">🔥</button>
+      <button onclick="pickReact('👍')" style="background:none;border:none;font-size:25px;padding:6px;border-radius:14px;">👍</button>
+      <button onclick="showFullReactPicker(pickerKey,pickerChat);hidePicker();" style="font-size:12px;font-weight:700;color:#8FA79D;background:#1E332C;border:none;border-radius:12px;padding:0 10px;">More</button>
+    </div>
+  </div>
+
+  <div style="font-size:10.5px;font-weight:700;letter-spacing:1.2px;color:#8FA79D;text-transform:uppercase;padding:4px 22px 8px;">Quick actions</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 4px;padding:0 14px;">
+    <button id="ep-reply" style="display:flex;align-items:center;gap:12px;padding:10px 8px;border-radius:14px;font-weight:600;font-size:13.5px;color:#EAF6F1;background:none;border:none;text-align:left;">
+      <span style="width:34px;height:34px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;background:rgba(51,224,172,.14);color:#33E0AC;"><i class="fa-solid fa-reply"></i></span>Reply
+    </button>
+    <button id="ep-fwd" style="display:flex;align-items:center;gap:12px;padding:10px 8px;border-radius:14px;font-weight:600;font-size:13.5px;color:#EAF6F1;background:none;border:none;text-align:left;">
+      <span style="width:34px;height:34px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;background:rgba(155,140,255,.14);color:#9B8CFF;"><i class="fa-solid fa-share"></i></span>Forward
+    </button>
+    <button id="ep-star" style="display:flex;align-items:center;gap:12px;padding:10px 8px;border-radius:14px;font-weight:600;font-size:13.5px;color:#EAF6F1;background:none;border:none;text-align:left;">
+      <span style="width:34px;height:34px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;background:rgba(232,180,74,.14);color:#E8B44A;"><i class="fa-solid fa-star"></i></span>Star
+    </button>
+    <button id="ep-pin" style="display:flex;align-items:center;gap:12px;padding:10px 8px;border-radius:14px;font-weight:600;font-size:13.5px;color:#EAF6F1;background:none;border:none;text-align:left;">
+      <span style="width:34px;height:34px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;background:rgba(232,180,74,.14);color:#E8B44A;"><i class="fa-solid fa-thumbtack"></i></span>Pin
+    </button>
+    <button id="ep-edit" style="display:none;align-items:center;gap:12px;padding:10px 8px;border-radius:14px;font-weight:600;font-size:13.5px;color:#EAF6F1;background:none;border:none;text-align:left;">
+      <span style="width:34px;height:34px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;background:rgba(92,194,232,.14);color:#5CC2E8;"><i class="fa-solid fa-pen"></i></span>Edit
+    </button>
+    <button id="ep-xlate" style="display:flex;align-items:center;gap:12px;padding:10px 8px;border-radius:14px;font-weight:600;font-size:13.5px;color:#EAF6F1;background:none;border:none;text-align:left;">
+      <span style="width:34px;height:34px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;background:rgba(92,194,232,.14);color:#5CC2E8;"><i class="fa-solid fa-language"></i></span>Translate
+    </button>
+    <button id="ep-reactions" onclick="showReactionSummary(pickerKey,pickerChat);hidePicker();" style="display:flex;align-items:center;gap:12px;padding:10px 8px;border-radius:14px;font-weight:600;font-size:13.5px;color:#EAF6F1;background:none;border:none;text-align:left;">
+      <span style="width:34px;height:34px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;background:rgba(92,194,232,.14);color:#5CC2E8;"><i class="fa-solid fa-chart-bar"></i></span>Reactions
+    </button>
+  </div>
+
+  <div style="height:1px;background:rgba(255,255,255,.06);margin:12px 20px;"></div>
+
+  <div style="padding:0 14px;">
+    <button id="ep-report" style="display:flex;align-items:center;gap:12px;padding:11px 8px;border-radius:14px;font-weight:600;font-size:13.5px;color:#FF6B6A;background:none;border:none;width:100%;text-align:left;">
+      <span style="width:34px;height:34px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;background:rgba(255,107,106,.14);color:#FF6B6A;"><i class="fa-solid fa-flag"></i></span>Report
+    </button>
+    <button id="ep-del" style="display:none;align-items:center;gap:12px;padding:11px 8px;border-radius:14px;font-weight:600;font-size:13.5px;color:#FF6B6A;background:none;border:none;width:100%;text-align:left;">
+      <span style="width:34px;height:34px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:15px;background:rgba(255,107,106,.14);color:#FF6B6A;"><i class="fa-regular fa-trash-can"></i></span>Delete
+    </button>
+  </div>
+</div>
+</div>
+
+
+<!-- ═══════════ MODALS ═══════════ -->
+
+<!-- Search/New Chat -->
+<div id="search-modal" class="modal-bg hidden" onclick="if(event.target===this)closeSearch()">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">New Chat</span><button onclick="closeSearch()" style="color:var(--t2);font-size:26px;line-height:1;">×</button></div>
+  <p style="font-size:13px;color:var(--t2);margin-bottom:10px;">Enter MKJ number (e.g. MKJ-4829) or username</p>
+  <div style="display:flex;gap:8px;margin-bottom:12px;">
+    <input id="ph-inp" type="text" placeholder="#MKJ-XXXX or username" style="flex:1;padding:13px;background:var(--s2);border-radius:12px;font-size:15px;" onkeydown="if(event.key==='Enter')searchMKJ()">
+    <button onclick="searchMKJ()" style="padding:0 18px;background:var(--g);border-radius:12px;color:#fff;font-weight:600;font-size:14px;">Find</button>
+  </div>
+  <div id="ph-result"></div>
+</div></div>
+
+<!-- Create Group -->
+<div id="create-group-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('create-group-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">Create Group</span><button onclick="closeModal('create-group-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+    <img id="grp-av-prev" src="https://ui-avatars.com/api/?background=7C3AED&color=fff&name=G" style="width:56px;height:56px;border-radius:50%;object-fit:cover;">
+    <label style="flex:1;padding:11px;background:var(--s2);border-radius:12px;text-align:center;cursor:pointer;color:var(--t2);font-size:13px;display:block;"><i class="fa-solid fa-camera" style="color:var(--g);margin-right:6px;"></i>Group Photo<input type="file" accept="image/*" style="display:none;" onchange="previewGroupPic(this)"></label>
+  </div>
+  <input id="grp-name-inp" type="text" placeholder="Group name" style="width:100%;padding:13px;background:var(--s2);border-radius:12px;font-size:15px;margin-bottom:10px;">
+  <textarea id="grp-desc-inp" placeholder="Group description (optional)" rows="2" style="width:100%;padding:12px;background:var(--s2);border-radius:12px;font-size:13px;color:var(--t1);margin-bottom:10px;resize:none;"></textarea>
+  <p style="font-size:12px;color:var(--t2);margin-bottom:8px;">Add members by #MKJ number:</p>
+  <div style="display:flex;gap:8px;margin-bottom:8px;">
+    <input id="grp-ph-inp" type="text" placeholder="#MKJ-XXXX" style="flex:1;padding:12px;background:var(--s2);border-radius:12px;font-size:14px;">
+    <button onclick="addGroupMember()" style="padding:0 16px;background:var(--g);border-radius:12px;color:#fff;font-weight:600;">Add</button>
+  </div>
+  <div id="grp-members-chips" style="margin-bottom:14px;min-height:36px;display:flex;flex-wrap:wrap;"></div>
+  <button onclick="createGroup()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;font-size:15px;">Create Group</button>
+</div>
+
+<!-- Create Channel Modal -->
+<div id="create-channel-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('create-channel-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">Create Channel</span><button onclick="closeModal('create-channel-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div style="text-align:center;margin-bottom:14px;">
+      <label style="cursor:pointer;">
+        <div style="width:72px;height:72px;border-radius:20px;background:var(--s2);display:flex;align-items:center;justify-content:center;margin:0 auto 8px;overflow:hidden;">
+          <i class="fa-solid fa-camera" style="color:var(--t2);font-size:24px;"></i>
+        </div>
+        <input id="ch-pic-inp" type="file" accept="image/*" style="display:none;">
+        <span style="font-size:12px;color:var(--t2);">Channel photo (optional)</span>
+      </label>
+    </div>
+    <input id="ch-name-inp" placeholder="Channel name" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:15px;color:var(--t1);margin-bottom:10px;">
+    <textarea id="ch-desc-inp" placeholder="Description (optional)" rows="2" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);margin-bottom:14px;resize:none;"></textarea>
+    <button onclick="createChannel()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;font-size:15px;">Create Channel</button>
+  </div>
+</div></div>
+
+<!-- Attach Bottom Sheet -->
+<div id="attach-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('attach-modal')">
+<div class="modal-box" style="padding:20px 18px 40px;">
+  <div style="width:40px;height:4px;background:var(--s2);border-radius:2px;margin:0 auto 16px;"></div>
+  <div class="attach-grid">
+    <div class="attach-item" onclick="pickMedia('image')"><div class="attach-icon-wrap" style="background:#7C3AED22;">📷</div><span class="attach-label">Camera</span></div>
+    <div class="attach-item" onclick="pickMedia('gallery')"><div class="attach-icon-wrap" style="background:#00A88422;">🖼</div><span class="attach-label">Gallery</span></div>
+    <div class="attach-item" onclick="pickMedia('file')"><div class="attach-icon-wrap" style="background:#3b82f622;">📁</div><span class="attach-label">File</span></div>
+    <div class="attach-item" onclick="pickMedia('video')"><div class="attach-icon-wrap" style="background:#ef444422;">🎥</div><span class="attach-label">Video</span></div>
+    <div class="attach-item" onclick="closeModal('attach-modal');openStickerPicker()"><div class="attach-icon-wrap" style="background:#f59e0b22;">🎭</div><span class="attach-label">Sticker</span></div>
+    <div class="attach-item" onclick="closeModal('attach-modal');openGifPicker()"><div class="attach-icon-wrap" style="background:#10b98122;">😄</div><span class="attach-label">GIF</span></div>
+    <div class="attach-item" onclick="closeModal('attach-modal');openScheduler()"><div class="attach-icon-wrap" style="background:#8b5cf622;">⏰</div><span class="attach-label">Schedule</span></div>
+    <div class="attach-item" onclick="closeModal('attach-modal');startVoice()"><div class="attach-icon-wrap" style="background:#ef444422;">🎙</div><span class="attach-label">Voice</span></div>
+    <div class="attach-item" onclick="openPollModal()"><div class="attach-icon-wrap" style="background:#06b6d422;">📊</div><span class="attach-label">Poll</span></div>
+    <div class="attach-item" onclick="closeModal('attach-modal');openContactShare()"><div class="attach-icon-wrap" style="background:#10b98122;">👤</div><span class="attach-label">Contact</span></div>
+    <div class="attach-item" onclick="closeModal('attach-modal');openModal('anon-modal')"><div class="attach-icon-wrap" style="background:#7C3AED22;">🎭</div><span class="attach-label">Anonymous</span></div>
+  </div>
+</div></div>
+
+<!-- Emoji/Sticker Keyboard -->
+<div id="emoji-kb-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('emoji-kb-modal')">
+<div class="modal-box" style="padding:16px 14px 32px;">
+  <div style="display:flex;gap:8px;margin-bottom:12px;border-bottom:1px solid var(--s2);padding-bottom:10px;">
+    <button onclick="emojiKbTab('emoji')" id="ekb-tab-emoji" style="flex:1;padding:8px;border-radius:10px;background:var(--g);color:#fff;font-weight:600;font-size:13px;">😊 Emoji</button>
+    <button onclick="emojiKbTab('sticker')" id="ekb-tab-sticker" style="flex:1;padding:8px;border-radius:10px;background:var(--s2);color:var(--t2);font-weight:600;font-size:13px;">🎭 Sticker</button>
+    <button onclick="emojiKbTab('gif')" id="ekb-tab-gif" style="flex:1;padding:8px;border-radius:10px;background:var(--s2);color:var(--t2);font-weight:600;font-size:13px;">😄 GIF</button>
+  </div>
+  <div id="ekb-emoji-panel"><div id="emoji-full-grid" style="display:grid;grid-template-columns:repeat(8,1fr);gap:6px;max-height:240px;overflow-y:auto;"></div></div>
+  <div id="ekb-sticker-panel" class="hidden"><div class="sticker-grid" id="sticker-grid-main"></div></div>
+  <div id="ekb-gif-panel" class="hidden">
+    <input id="gif-search-inp" type="text" placeholder="Search GIFs…" style="width:100%;padding:10px;background:var(--s2);border-radius:10px;font-size:14px;margin-bottom:10px;" oninput="searchGifs(this.value)">
+    <div id="gif-grid" class="gif-grid" style="max-height:220px;overflow-y:auto;"></div>
+  </div>
+</div></div>
+
+<!-- GIF picker standalone -->
+<div id="gif-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('gif-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">Send GIF</span><button onclick="closeModal('gif-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <input id="gif-search-inp2" type="text" placeholder="Search GIFs…" style="width:100%;padding:12px;background:var(--s2);border-radius:12px;font-size:14px;margin-bottom:12px;" oninput="searchGifsModal(this.value)">
+  <div id="gif-results2" class="gif-grid" style="max-height:300px;overflow-y:auto;"></div>
+</div></div>
+
+<!-- Schedule Message -->
+<div id="schedule-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('schedule-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">⏰ Schedule Message</span><button onclick="closeModal('schedule-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <textarea id="sched-msg" rows="3" placeholder="Type your message…" style="width:100%;padding:13px;background:var(--s2);border-radius:12px;font-size:15px;resize:none;margin-bottom:12px;color:var(--t1);"></textarea>
+  <input type="datetime-local" id="sched-time" style="width:100%;padding:13px;background:var(--s2);border-radius:12px;font-size:14px;color:var(--t1);margin-bottom:12px;">
+  <button onclick="scheduleMessage()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;font-size:15px;">Schedule</button>
+</div></div>
+
+<!-- Forward Message -->
+<div id="forward-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('forward-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">Forward Message</span><button onclick="closeModal('forward-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div id="fwd-preview" style="padding:10px;background:var(--s2);border-radius:10px;margin-bottom:14px;font-size:13px;color:var(--t2);border-left:3px solid var(--g);"></div>
+  <div id="fwd-list" style="max-height:320px;overflow-y:auto;"></div>
+</div></div>
+
+<!-- Translate -->
+<div id="translate-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('translate-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🌐 Translate</span><button onclick="closeModal('translate-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div id="xlate-orig" style="padding:12px;background:var(--s2);border-radius:10px;margin-bottom:12px;font-size:14px;color:var(--t2);"></div>
+  <select id="xlate-lang" class="lang-select" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;color:var(--t1);font-size:14px;margin-bottom:12px;border:none;"></select>
+  <button onclick="doTranslate()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;font-size:15px;margin-bottom:12px;">Translate</button>
+  <div id="xlate-result" style="display:none;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);border-left:3px solid var(--g);"></div>
+</div></div>
+
+<!-- Pin Messages -->
+<div id="pin-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('pin-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">📌 Pinned Messages</span><button onclick="closeModal('pin-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div id="pin-list"></div>
+</div></div>
+
+<!-- Starred Messages -->
+<div id="starred-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('starred-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">⭐ Starred Messages</span><button onclick="closeModal('starred-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div id="starred-list"></div>
+</div></div>
+
+<!-- Message Search -->
+<div id="msg-search-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('msg-search-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">Search Messages</span><button onclick="closeModal('msg-search-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <input id="msg-search-inp" type="text" placeholder="Search all messages…" style="width:100%;padding:13px;background:var(--s2);border-radius:12px;font-size:15px;margin-bottom:12px;" oninput="searchMessages(this.value)">
+  <div id="msg-search-results" style="max-height:360px;overflow-y:auto;"></div>
+</div></div>
+
+<!-- QR Code -->
+<div id="qr-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('qr-modal')">
+<div class="modal-box" style="text-align:center;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">My QR Code</span><button onclick="closeModal('qr-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <p style="font-size:13px;color:var(--t2);margin-bottom:16px;">Others scan this to add you instantly</p>
+  <div id="qr-cont" style="display:flex;justify-content:center;padding:20px;background:#fff;border-radius:16px;margin-bottom:16px;"></div>
+  <div id="qr-mkj-lbl" style="font-size:22px;color:var(--blue);font-weight:800;letter-spacing:2px;"></div>
+  <p style="font-size:12px;color:var(--t2);margin-top:6px;">Your permanent MKJ number</p>
+</div></div>
+
+<!-- Bio Edit -->
+<div id="bio-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('bio-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">Edit Bio</span><button onclick="closeModal('bio-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <textarea id="bio-inp" rows="4" placeholder="Tell others about yourself…" style="width:100%;padding:13px;background:var(--s2);border-radius:12px;font-size:15px;resize:none;margin-bottom:12px;color:var(--t1);"></textarea>
+  <button onclick="saveBio()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;font-size:15px;">Save</button>
+</div></div>
+
+<!-- Chat Lock Setup -->
+<div id="chat-lock-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('chat-lock-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🔒 Chat Lock</span><button onclick="closeModal('chat-lock-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <p style="font-size:13px;color:var(--t2);margin-bottom:20px;">Set a 4-digit PIN. You'll need it every time you open the app.</p>
+  <div style="display:flex;gap:12px;justify-content:center;margin-bottom:24px;">
+    <input class="pin-box" id="sp1" type="password" maxlength="1" inputmode="numeric" oninput="pinNav(this,'sp2')">
+    <input class="pin-box" id="sp2" type="password" maxlength="1" inputmode="numeric" oninput="pinNav(this,'sp3')">
+    <input class="pin-box" id="sp3" type="password" maxlength="1" inputmode="numeric" oninput="pinNav(this,'sp4')">
+    <input class="pin-box" id="sp4" type="password" maxlength="1" inputmode="numeric" oninput="pinNav(this,null)">
+  </div>
+  <button onclick="savePin()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;font-size:15px;margin-bottom:10px;">Set PIN</button>
+  <button onclick="removePin()" style="width:100%;padding:13px;border-radius:12px;color:var(--red);font-weight:600;font-size:14px;border:1px solid rgba(239,68,68,.3);background:none;">Remove PIN</button>
+</div></div>
+
+<!-- Who Viewed -->
+<div id="who-viewed-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('who-viewed-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">👁 Profile Views</span><button onclick="closeModal('who-viewed-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div id="who-viewed-list"></div>
+</div></div>
+
+<!-- Status Creator -->
+<div id="status-creator-modal" class="modal-bg hidden" onclick="if(event.target===this)closeStatusCreator()">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">Add Status</span><button onclick="closeStatusCreator()" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;">
+    <button onclick="statusType_pick('photo')" style="padding:16px 8px;background:var(--s2);border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:8px;font-size:13px;color:var(--t1);"><i class="fa-solid fa-image" style="font-size:26px;color:var(--g);"></i>Photo</button>
+    <button onclick="statusType_pick('video')" style="padding:16px 8px;background:var(--s2);border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:8px;font-size:13px;color:var(--t1);"><i class="fa-solid fa-video" style="font-size:26px;color:#3b82f6;"></i>Video</button>
+    <button onclick="statusType_pick('voice')" style="padding:16px 8px;background:var(--s2);border-radius:14px;display:flex;flex-direction:column;align-items:center;gap:8px;font-size:13px;color:var(--t1);"><i class="fa-solid fa-microphone" style="font-size:26px;color:var(--amber);"></i>Voice</button>
+  </div>
+  <input id="status-caption-inp" type="text" placeholder="Add a caption…" style="width:100%;padding:12px;background:var(--s2);border-radius:12px;font-size:14px;margin-bottom:10px;">
+  <div id="status-prev-box" class="hidden" style="border-radius:12px;overflow:hidden;max-height:200px;text-align:center;background:var(--s2);margin-bottom:10px;"></div>
+  <div id="voice-status-ui" class="hidden" style="text-align:center;padding:20px 0;">
+    <button id="rec-status-btn" onclick="toggleStatusVoice()" style="width:72px;height:72px;border-radius:50%;background:var(--red);margin:0 auto 12px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-microphone" style="color:#fff;font-size:28px;"></i></button>
+    <p id="rec-status-lbl" style="color:var(--t2);font-size:13px;">Tap to record</p>
+  </div>
+  <div id="status-music-preview" class="hidden" style="display:flex;align-items:center;gap:8px;background:var(--s2);border-radius:10px;padding:10px 12px;margin-bottom:10px;">
+    <i class="fa-solid fa-music" style="color:var(--g);"></i>
+    <span id="status-music-preview-txt" style="font-size:13px;color:var(--t1);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+    <button onclick="clearStatusMusic()" style="color:var(--red);font-size:13px;">✕</button>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:10px;">
+    <button onclick="openModal('status-music-modal')" style="flex:1;padding:11px;background:var(--s2);border-radius:12px;color:var(--t1);font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px;"><i class="fa-solid fa-music" style="color:var(--g);"></i>Add Music</button>
+  </div>
+  <div style="margin-bottom:10px;">
+    <p style="font-size:11px;color:var(--t2);font-weight:700;margin-bottom:8px;letter-spacing:.5px;">WHO CAN SEE THIS</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+      <button id="sp-everyone" onclick="setStatusPrivacy('everyone')" style="padding:10px;border-radius:10px;font-size:12px;font-weight:600;text-align:left;">🌍 Everyone</button>
+      <button id="sp-contacts" onclick="setStatusPrivacy('contacts')" style="padding:10px;border-radius:10px;font-size:12px;font-weight:600;text-align:left;">📇 My Contacts</button>
+      <button id="sp-except" onclick="setStatusPrivacy('contacts_except')" style="padding:10px;border-radius:10px;font-size:12px;font-weight:600;text-align:left;">🚫 Contacts Except…</button>
+      <button id="sp-only" onclick="setStatusPrivacy('only_these')" style="padding:10px;border-radius:10px;font-size:12px;font-weight:600;text-align:left;">✅ Only Share With…</button>
+    </div>
+    <div id="status-privacy-picklist" class="hidden" style="max-height:140px;overflow-y:auto;background:var(--s2);border-radius:10px;padding:8px;margin-bottom:4px;"></div>
+  </div>
+  <button id="post-status-btn" onclick="postStatus()" class="hidden" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;font-size:15px;">Post Status ✓</button>
+</div></div>
+
+<!-- Status Viewers -->
+<div id="status-viewers-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('status-viewers-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">👁 Viewed by</span><button onclick="closeModal('status-viewers-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div id="status-viewers-list"></div>
+</div></div>
+
+<!-- Group Info -->
+<div id="group-info-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('group-info-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">Group Info</span><button onclick="closeModal('group-info-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div id="group-info-content"></div>
+  <div style="margin-top:14px;">
+    <p style="font-size:12px;color:var(--t2);margin-bottom:8px;font-weight:600;">ADD MEMBER (#MKJ NUMBER)</p>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <input id="grp-add-ph" type="text" placeholder="#MKJ-XXXX" style="flex:1;padding:12px;background:var(--s2);border-radius:12px;font-size:14px;">
+      <button onclick="addMemberToGroup()" style="padding:0 16px;background:var(--g);border-radius:12px;color:#fff;font-weight:600;">Add</button>
+    </div>
+    <button onclick="genGroupInviteLink()" style="width:100%;padding:11px;border-radius:12px;background:var(--s2);color:var(--blue);font-weight:600;font-size:14px;margin-bottom:8px;"><i class="fa-solid fa-link" style="margin-right:8px;"></i>Generate Invite Link</button>
+    <div id="invite-link-box" style="display:none;padding:10px;background:var(--s2);border-radius:10px;word-break:break-all;font-size:12px;color:var(--t1);"></div>
+  </div>
+</div></div>
+
+<!-- Poll Creator -->
+<div id="poll-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('poll-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">📊 Create Poll</span><button onclick="closeModal('poll-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <input id="poll-q" type="text" placeholder="Ask a question…" style="width:100%;padding:13px;background:var(--s2);border-radius:12px;font-size:15px;margin-bottom:12px;">
+  <div id="poll-opts-cont">
+    <input type="text" placeholder="Option 1" class="poll-opt" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;margin-bottom:8px;color:var(--t1);">
+    <input type="text" placeholder="Option 2" class="poll-opt" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;margin-bottom:8px;color:var(--t1);">
+  </div>
+  <button onclick="addPollOptLegacy()" style="color:var(--g);font-size:13px;margin-bottom:16px;padding:8px 0;"><i class="fa-solid fa-plus" style="margin-right:6px;"></i>Add Option</button>
+  <button onclick="submitPoll()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;font-size:15px;">Create Poll</button>
+</div></div>
+
+<!-- Private Chat Menu -->
+<div id="private-menu-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('private-menu-modal')">
+<div class="modal-box" style="padding:16px 14px 32px;">
+  <div style="width:40px;height:4px;background:var(--s2);border-radius:2px;margin:0 auto 16px;"></div>
+  <div class="ci" style="border-radius:12px;" onclick="openBgPicker('private');closeModal('private-menu-modal')"><i class="fa-solid fa-palette" style="color:var(--g);width:28px;font-size:18px;"></i><span style="color:var(--t1);font-size:14px;font-weight:500;">Chat Background</span></div>
+  <div class="ci" style="border-radius:12px;" onclick="setChatWallpaper('private');closeModal('private-menu-modal')"><i class="fa-solid fa-image" style="color:var(--blue);width:28px;font-size:18px;"></i><span style="color:var(--t1);font-size:14px;font-weight:500;">Set Wallpaper</span></div>
+  <div class="ci" style="border-radius:12px;" onclick="openModal('disappear-modal');closeModal('private-menu-modal')"><i class="fa-solid fa-clock" style="color:var(--amber);width:28px;font-size:18px;"></i><span style="color:var(--t1);font-size:14px;font-weight:500;">Disappearing Messages</span></div>
+  <div class="ci" style="border-radius:12px;" onclick="toggleMuteChat();closeModal('private-menu-modal')"><i class="fa-solid fa-bell-slash" id="mute-icon" style="color:var(--t2);width:28px;font-size:18px;"></i><span id="mute-label" style="color:var(--t1);font-size:14px;font-weight:500;">Mute Notifications</span></div>
+  <div class="ci" style="border-radius:12px;" onclick="openModal('pin-modal');loadPinned('private');closeModal('private-menu-modal')"><i class="fa-solid fa-thumbtack" style="color:var(--purple);width:28px;font-size:18px;"></i><span style="color:var(--t1);font-size:14px;font-weight:500;">Pinned Messages</span></div>
+  <div class="ci" style="border-radius:12px;" onclick="toggleBlock();closeModal('private-menu-modal')"><i class="fa-solid fa-ban" id="block-icon" style="color:var(--red);width:28px;font-size:18px;"></i><span id="block-label" style="color:var(--red);font-size:14px;font-weight:500;">Block User</span></div>
+</div></div>
+
+<!-- Disappearing Messages -->
+<div id="disappear-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('disappear-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">Disappearing Messages</span><button onclick="closeModal('disappear-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div style="display:grid;gap:8px;">
+    <button onclick="setDisappearing(0)" id="dis-off" style="padding:13px;border-radius:12px;background:var(--g);color:#fff;font-weight:600;font-size:14px;">Off</button>
+    <button onclick="setDisappearing(3600)" id="dis-1h" style="padding:13px;border-radius:12px;background:var(--s2);color:var(--t1);font-size:14px;">1 Hour</button>
+    <button onclick="setDisappearing(86400)" id="dis-1d" style="padding:13px;border-radius:12px;background:var(--s2);color:var(--t1);font-size:14px;">24 Hours</button>
+    <button onclick="setDisappearing(604800)" id="dis-7d" style="padding:13px;border-radius:12px;background:var(--s2);color:var(--t1);font-size:14px;">7 Days</button>
+  </div>
+</div></div>
+
+<!-- Chat Background Picker -->
+<div id="bg-picker-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('bg-picker-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">Chat Background</span><button onclick="closeModal('bg-picker-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div id="bg-swatches" style="display:flex;flex-wrap:wrap;gap:12px;padding:8px 0;"></div>
+</div></div>
+
+<!-- Community Rules -->
+<div id="comm-rules-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('comm-rules-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🛡 Community Rules</span><button onclick="closeModal('comm-rules-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div style="display:grid;gap:10px;">
+    <div style="padding:12px;background:var(--s2);border-radius:12px;display:flex;gap:10px;align-items:flex-start;"><span style="font-size:20px;">🚫</span><div><div style="font-weight:600;color:var(--t1);font-size:14px;margin-bottom:2px;">No Spam</div><div style="font-size:12px;color:var(--t2);">No repeated messages or advertisements</div></div></div>
+    <div style="padding:12px;background:var(--s2);border-radius:12px;display:flex;gap:10px;align-items:flex-start;"><span style="font-size:20px;">🤝</span><div><div style="font-weight:600;color:var(--t1);font-size:14px;margin-bottom:2px;">Be Respectful</div><div style="font-size:12px;color:var(--t2);">Treat everyone with kindness and respect</div></div></div>
+    <div style="padding:12px;background:var(--s2);border-radius:12px;display:flex;gap:10px;align-items:flex-start;"><span style="font-size:20px;">🔞</span><div><div style="font-weight:600;color:var(--t1);font-size:14px;margin-bottom:2px;">No Adult Content</div><div style="font-size:12px;color:var(--t2);">Keep content appropriate for all ages</div></div></div>
+    <div style="padding:12px;background:var(--s2);border-radius:12px;display:flex;gap:10px;align-items:flex-start;"><span style="font-size:20px;">🌍</span><div><div style="font-weight:600;color:var(--t1);font-size:14px;margin-bottom:2px;">All Languages Welcome</div><div style="font-size:12px;color:var(--t2);">No discrimination based on language or origin</div></div></div>
+    <div style="padding:12px;background:var(--s2);border-radius:12px;display:flex;gap:10px;align-items:flex-start;"><span style="font-size:20px;">⚠️</span><div><div style="font-weight:600;color:var(--t1);font-size:14px;margin-bottom:2px;">No Hate Speech</div><div style="font-size:12px;color:var(--t2);">No bullying, harassment or hate of any kind</div></div></div>
+    <div style="padding:12px;background:var(--s2);border-radius:12px;display:flex;gap:10px;align-items:flex-start;"><span style="font-size:20px;">🔒</span><div><div style="font-weight:600;color:var(--t1);font-size:14px;margin-bottom:2px;">Privacy First</div><div style="font-size:12px;color:var(--t2);">Never share others' personal information</div></div></div>
+    <div style="padding:12px;background:rgba(239,68,68,.1);border-radius:12px;display:flex;gap:10px;align-items:flex-start;border:1px solid rgba(239,68,68,.2);"><span style="font-size:20px;">🚨</span><div><div style="font-weight:600;color:var(--red);font-size:14px;margin-bottom:2px;">Violations = Ban</div><div style="font-size:12px;color:var(--t2);">Rule breakers will be removed from the community</div></div></div>
+  </div>
+</div></div>
+
+<!-- FAQ -->
+<div id="faq-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('faq-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">❓ FAQ</span><button onclick="closeModal('faq-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div id="faq-list"></div>
+</div></div>
+
+<!-- Privacy Policy -->
+<div id="privacy-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('privacy-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🔐 Privacy Policy</span><button onclick="closeModal('privacy-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div style="color:var(--t2);font-size:13px;line-height:1.7;display:grid;gap:14px;">
+    <div><div style="font-weight:700;color:var(--t1);margin-bottom:4px;">What We Collect</div>Your name, email, profile photo, messages, and MKJ number. Messages are stored on Firebase (Google servers).</div>
+    <div><div style="font-weight:700;color:var(--t1);margin-bottom:4px;">How We Use It</div>Only to provide app functionality. Your data is never sold, shared with advertisers, or used for any other purpose.</div>
+    <div><div style="font-weight:700;color:var(--t1);margin-bottom:4px;">Your MKJ Number</div>Your #MKJ number is permanent and uniquely assigned to your account. It cannot be changed or reassigned.</div>
+    <div><div style="font-weight:700;color:var(--t1);margin-bottom:4px;">Data Storage</div>All data is stored securely on Firebase (Google Cloud). We use Firebase Authentication for secure login.</div>
+    <div><div style="font-weight:700;color:var(--t1);margin-bottom:4px;">Your Rights</div>You can delete your account and all associated data at any time by contacting us.</div>
+    <div><div style="font-weight:700;color:var(--t1);margin-bottom:4px;">Contact</div><a href="mailto:tesapp773@gmail.com" style="color:var(--g);">tesapp773@gmail.com</a></div>
+    <div style="color:var(--t2);font-size:12px;">Last updated: June 2026</div>
+  </div>
+</div></div>
+
+<!-- Report Modal -->
+<div id="report-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('report-modal')">
+<div class="modal-box">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🚨 Report Message</span><button onclick="closeModal('report-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div id="report-msg-preview" style="padding:10px;background:var(--s2);border-radius:10px;margin-bottom:14px;font-size:13px;color:var(--t2);border-left:3px solid var(--red);"></div>
+  <p style="font-size:13px;color:var(--t2);margin-bottom:10px;">Reason for report:</p>
+  <div style="display:grid;gap:8px;margin-bottom:16px;" id="report-reasons">
+    <button onclick="selectReport(this,'Spam')" class="report-reason" style="padding:12px;background:var(--s2);border-radius:10px;text-align:left;color:var(--t1);font-size:14px;border:1px solid transparent;">📢 Spam or advertisement</button>
+    <button onclick="selectReport(this,'Harassment')" class="report-reason" style="padding:12px;background:var(--s2);border-radius:10px;text-align:left;color:var(--t1);font-size:14px;border:1px solid transparent;">😤 Harassment or bullying</button>
+    <button onclick="selectReport(this,'Adult Content')" class="report-reason" style="padding:12px;background:var(--s2);border-radius:10px;text-align:left;color:var(--t1);font-size:14px;border:1px solid transparent;">🔞 Adult or inappropriate content</button>
+    <button onclick="selectReport(this,'Hate Speech')" class="report-reason" style="padding:12px;background:var(--s2);border-radius:10px;text-align:left;color:var(--t1);font-size:14px;border:1px solid transparent;">⚠️ Hate speech or discrimination</button>
+    <button onclick="selectReport(this,'Other')" class="report-reason" style="padding:12px;background:var(--s2);border-radius:10px;text-align:left;color:var(--t1);font-size:14px;border:1px solid transparent;">🔴 Other</button>
+  </div>
+  <button onclick="submitReport()" id="submit-report-btn" style="width:100%;padding:13px;background:var(--red);border-radius:12px;font-weight:700;color:#fff;font-size:15px;">Submit Report</button>
+</div></div>
+
+<!-- GLOBAL SEARCH MODAL -->
+<div id="global-search-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('global-search-modal')">
+  <div class="modal-box" style="max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🔍 Search All Chats</span><button onclick="closeModal('global-search-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <input id="global-search-inp" placeholder="Search messages…" style="flex:1;padding:10px 12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);" oninput="globalSearch(this.value)">
+    </div>
+    <div id="global-search-results"></div>
+  </div>
+</div>
+
+<!-- LEADERBOARD MODAL -->
+<div id="leaderboard-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('leaderboard-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🏆 Top Users This Week</span><button onclick="closeModal('leaderboard-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div id="leaderboard-list"></div>
+  </div>
+</div>
+
+<!-- CREATE POST MODAL -->
+<div id="create-post-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('create-post-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">📝 New Post</span><button onclick="closeModal('create-post-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+      <img id="post-user-av" src="" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
+      <span id="post-user-name" style="font-weight:700;color:var(--t1);font-size:14px;"></span>
+    </div>
+    <textarea id="post-text-inp" placeholder="What's on your mind?" rows="4" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:15px;color:var(--t1);resize:none;margin-bottom:12px;border:none;"></textarea>
+    <div id="feed-music-preview" class="hidden" style="display:flex;align-items:center;gap:8px;background:var(--s2);border-radius:10px;padding:10px 12px;margin-bottom:10px;">
+      <i class="fa-solid fa-music" style="color:var(--g);"></i>
+      <span id="feed-music-preview-txt" style="font-size:13px;color:var(--t1);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+      <button onclick="clearFeedMusic()" style="color:var(--t2);font-size:16px;">×</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <label style="flex:1;background:var(--s2);border-radius:10px;padding:10px;text-align:center;cursor:pointer;font-size:13px;color:var(--t2);" onclick="$('post-img-inp').click()"><i class="fa-solid fa-image" style="color:var(--g);margin-right:6px;"></i>Photo<input type="file" accept="image/*" id="post-img-inp" style="display:none;" onchange="previewPostMedia(this,'image')"></label>
+      <label style="flex:1;background:var(--s2);border-radius:10px;padding:10px;text-align:center;cursor:pointer;font-size:13px;color:var(--t2);" onclick="$('post-vid-inp').click()"><i class="fa-solid fa-video" style="color:var(--blue);margin-right:6px;"></i>Video<input type="file" accept="video/*" id="post-vid-inp" style="display:none;" onchange="previewPostMedia(this,'video')"></label>
+      <button onclick="openModal('feed-music-modal')" style="flex:1;background:var(--s2);border-radius:10px;padding:10px;text-align:center;font-size:13px;color:var(--t2);"><i class="fa-solid fa-music" style="color:var(--g);margin-right:6px;"></i>Music</button>
+    </div>
+    <div id="post-media-prev" style="display:none;margin-bottom:12px;position:relative;">
+      <img id="post-img-prev" style="width:100%;border-radius:10px;display:none;" alt="">
+      <video id="post-vid-prev" controls style="width:100%;border-radius:10px;display:none;max-height:200px;"></video>
+      <button onclick="clearPostMedia()" style="position:absolute;top:8px;right:8px;background:rgba(0,0,0,.6);color:#fff;width:28px;height:28px;border-radius:50%;font-size:14px;">×</button>
+    </div>
+    <button onclick="createFeedPost()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;font-size:15px;">Share Post</button>
+  </div>
+</div>
+
+<!-- QUICK REPLIES -->
+<div id="quick-replies-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('quick-replies-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">⚡ Quick Replies</span><button onclick="closeModal('quick-replies-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div id="quick-replies-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
+    <div style="display:flex;gap:8px;"><input id="new-quick-inp" placeholder="Add a quick reply…" style="flex:1;padding:10px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);" onkeydown="if(event.key==='Enter')addQuickReply()"><button onclick="addQuickReply()" style="padding:10px 14px;background:var(--g);border-radius:10px;color:#fff;font-weight:700;">Add</button></div>
+  </div>
+</div>
+
+<!-- CHAT STATS -->
+<div id="chat-stats-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('chat-stats-modal')">
+  <div class="modal-box" style="max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">📊 Chat Statistics</span><button onclick="closeModal('chat-stats-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div id="chat-stats-content"></div>
+  </div>
+</div>
+
+<!-- CHAT THEME -->
+<div id="chat-theme-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('chat-theme-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🎨 Chat Theme</span><button onclick="closeModal('chat-theme-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px;" id="theme-swatches"></div>
+    <button onclick="applyChatTheme()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;">Apply Theme</button>
+  </div>
+</div>
+
+<!-- SCHEDULED MESSAGES VIEW -->
+<div id="sched-cal-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('sched-cal-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">📅 Scheduled Messages</span><button onclick="closeModal('sched-cal-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div id="sched-list-view" style="display:flex;flex-direction:column;gap:8px;"></div>
+    <div style="color:var(--t2);font-size:12px;margin-top:10px;">Tap a message to cancel it.</div>
+  </div>
+</div>
+
+<!-- MINI GAMES -->
+<div id="games-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('games-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🎮 MKJ Mini-Games</span><button onclick="closeModal('games-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="ci" style="border-radius:14px;flex-direction:column;gap:6px;padding:16px;cursor:pointer;" onclick="startGame('ttt')"><span style="font-size:28px;">❌⭕</span><span style="font-weight:700;color:var(--t1);">Tic-Tac-Toe</span></div>
+      <div class="ci" style="border-radius:14px;flex-direction:column;gap:6px;padding:16px;cursor:pointer;" onclick="startGame('rps')"><span style="font-size:28px;">✊✌️🤚</span><span style="font-weight:700;color:var(--t1);">Rock Paper Scissors</span></div>
+      <div class="ci" style="border-radius:14px;flex-direction:column;gap:6px;padding:16px;cursor:pointer;" onclick="startGame('number')"><span style="font-size:28px;">🔢</span><span style="font-weight:700;color:var(--t1);">Number Battle</span></div>
+      <div class="ci" style="border-radius:14px;flex-direction:column;gap:6px;padding:16px;cursor:pointer;" onclick="startGame('word')"><span style="font-size:28px;">💬</span><span style="font-weight:700;color:var(--t1);">Word Guess</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- COLLAB NOTES -->
+<div id="collab-notes-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('collab-notes-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">📝 Shared Notes</span><button onclick="closeModal('collab-notes-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div style="font-size:12px;color:var(--t2);margin-bottom:10px;">Both you and your contact can edit this note. Changes sync in real time.</div>
+    <textarea id="collab-note-ta" rows="10" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);resize:none;margin-bottom:8px;" oninput="syncCollabNote(this.value)" placeholder="Start typing your shared note…"></textarea>
+    <div style="font-size:11px;color:var(--t2);" id="collab-note-status">Synced</div>
+  </div>
+</div>
+
+<!-- REACTIONS LEADERBOARD -->
+<div id="react-leaderboard-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('react-leaderboard-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">❤️ Most Reacted This Week</span><button onclick="closeModal('react-leaderboard-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div id="react-leaderboard-list"></div>
+  </div>
+</div>
+
+<!-- MODERATION DASHBOARD -->
+<div id="mod-dashboard-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('mod-dashboard-modal')">
+  <div class="modal-box" style="max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🛡 CEO Dashboard</span><button onclick="closeModal('mod-dashboard-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;" id="mod-stats-row"></div>
+    <div style="font-size:11px;color:var(--t2);font-weight:700;margin-bottom:8px;letter-spacing:.5px;">REPORTS</div>
+    <div id="mod-reports-list"></div>
+    <div style="font-size:11px;color:var(--t2);font-weight:700;margin:14px 0 8px;letter-spacing:.5px;">ALL USERS</div>
+    <div id="mod-users-list"></div>
+  </div>
+</div>
+
+<!-- MULTI ACCOUNT -->
+<div id="multi-acct-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('multi-acct-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">👥 Switch Account</span><button onclick="closeModal('multi-acct-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div id="acct-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
+    <button onclick="addNewAccount()" style="width:100%;padding:13px;background:var(--s2);border-radius:12px;font-weight:700;color:var(--t1);"><i class="fa-solid fa-plus" style="margin-right:6px;color:var(--g);"></i>Add Account</button>
+  </div>
+</div>
+
+<!-- POINTS / REPUTATION -->
+<div id="points-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('points-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">⭐ MKJ Reputation</span><button onclick="closeModal('points-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div id="points-content"></div>
+    <div style="margin-top:14px;font-size:11px;color:var(--t2);font-weight:700;margin-bottom:8px;">HOW TO EARN</div>
+    <div style="display:grid;gap:4px;font-size:13px;color:var(--t2);">
+      <div>💬 Send message → 1 pt</div><div>❤️ Get a reaction → 2 pts</div>
+      <div>📸 Post status → 3 pts</div><div>🔗 Invite friend → 10 pts</div><div>🔥 Daily login → 5 pts</div>
+    </div>
+  </div>
+</div>
+
+<!-- DEEP LINK MODAL -->
+<div id="deeplink-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('deeplink-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🔗 Share Your Profile</span><button onclick="closeModal('deeplink-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div id="deeplink-url" style="background:var(--s2);border-radius:10px;padding:12px;font-size:13px;color:var(--t2);word-break:break-all;margin-bottom:12px;"></div>
+    <div style="display:flex;gap:8px;">
+      <button onclick="copyDeepLink()" style="flex:1;padding:12px;background:var(--s2);border-radius:10px;color:var(--t1);font-weight:600;"><i class="fa-solid fa-copy" style="margin-right:4px;"></i>Copy</button>
+      <button onclick="shareDeepLink()" style="flex:1;padding:12px;background:var(--g);border-radius:10px;color:#fff;font-weight:700;"><i class="fa-solid fa-share" style="margin-right:4px;"></i>Share</button>
+    </div>
+  </div>
+</div>
+
+<!-- FOLLOW LIST MODAL -->
+<div id="follow-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('follow-modal')">
+  <div class="modal-box" style="max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span id="follow-modal-title" style="font-size:17px;font-weight:700;color:var(--t1);">Followers</span><button onclick="closeModal('follow-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div id="follow-list"></div>
+  </div>
+</div>
+
+<!-- ARCHIVE MODAL -->
+<div id="archive-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('archive-modal')">
+  <div class="modal-box" style="max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">📦 Archived Chats</span><button onclick="closeModal('archive-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div id="archive-list"></div>
+  </div>
+</div>
+
+<!-- STORY HIGHLIGHTS MODAL -->
+<div id="highlights-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('highlights-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">✨ Story Highlights</span><button onclick="closeModal('highlights-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <p style="font-size:13px;color:var(--t2);margin-bottom:12px;">Highlights are saved statuses that never expire and show on your profile.</p>
+    <div id="highlights-list" style="display:flex;gap:12px;flex-wrap:wrap;"></div>
+  </div>
+</div>
+
+<!-- BIO LINK MODAL -->
+<div id="bio-link-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('bio-link-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🔗 Profile Link</span><button onclick="closeModal('bio-link-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <input id="bio-link-inp" placeholder="https://yourwebsite.com" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);border:none;margin-bottom:12px;" type="url">
+    <button onclick="saveBioLink()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;">Save Link</button>
+  </div>
+</div>
+
+<!-- READ RECEIPT TOGGLE MODAL -->
+<div id="read-receipt-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('read-receipt-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">Read Receipts</span><button onclick="closeModal('read-receipt-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div id="rr-contact-name" style="font-size:14px;color:var(--t2);margin-bottom:14px;"></div>
+    <div class="feat-row"><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Show read receipts</div><div style="font-size:12px;color:var(--t2);">When off, they won't see blue ticks</div></div><div id="rr-toggle" class="toggle on" onclick="toggleReadReceipt()"></div></div>
+  </div>
+</div>
+
+<!-- SAVED MESSAGES MODAL -->
+<div id="saved-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('saved-modal')">
+  <div class="modal-box" style="max-height:80vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🔖 Saved Messages</span><button onclick="closeModal('saved-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;">
+      <input id="saved-note-inp" placeholder="Write a note to yourself…" style="flex:1;padding:10px 12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);" onkeydown="if(event.key==='Enter')saveSelfNote()">
+      <button onclick="saveSelfNote()" style="padding:10px 14px;background:var(--g);border-radius:10px;color:#fff;font-weight:700;">Save</button>
+    </div>
+    <div id="saved-list"></div>
+  </div>
+</div>
+
+<!-- MANAGE FOLDERS MODAL -->
+<div id="manage-folders-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('manage-folders-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">📁 Manage Folders</span><button onclick="closeModal('manage-folders-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <p style="font-size:13px;color:var(--t2);margin-bottom:12px;">Folders help you organise chats. Tap a folder chip in the Chats tab to filter.</p>
+    <div style="display:grid;gap:8px;">
+      <div class="ci" style="border-radius:12px;"><i class="fa-solid fa-envelope" style="color:var(--g);width:24px;"></i><span style="color:var(--t1);">All Chats</span><span style="color:var(--t2);font-size:12px;margin-left:auto;">Default</span></div>
+      <div class="ci" style="border-radius:12px;"><i class="fa-solid fa-circle-dot" style="color:var(--red);width:24px;"></i><span style="color:var(--t1);">Unread</span><span style="color:var(--t2);font-size:12px;margin-left:auto;">Auto</span></div>
+      <div class="ci" style="border-radius:12px;"><i class="fa-solid fa-users" style="color:var(--blue);width:24px;"></i><span style="color:var(--t1);">Groups</span><span style="color:var(--t2);font-size:12px;margin-left:auto;">Auto</span></div>
+      <div class="ci" style="border-radius:12px;"><i class="fa-solid fa-bookmark" style="color:var(--amber);width:24px;"></i><span style="color:var(--t1);">Saved</span><span style="color:var(--t2);font-size:12px;margin-left:auto;">Auto</span></div>
+    </div>
+    <p style="font-size:12px;color:var(--t2);margin-top:14px;">More custom folders coming soon.</p>
+  </div>
+</div>
+
+<!-- TRANSLATOR MODAL -->
+<div id="translator-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('translator-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🌐 Translate</span><button onclick="closeModal('translator-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <div id="orig-text-box" style="background:var(--s2);border-radius:10px;padding:12px;font-size:14px;color:var(--t2);margin-bottom:12px;line-height:1.5;"></div>
+    <select id="translator-lang-sel" class="lang-select" style="width:100%;padding:10px;background:var(--s2);border-radius:10px;color:var(--t1);font-size:14px;margin-bottom:10px;"></select>
+    <button onclick="runTranslate()" style="width:100%;padding:12px;background:var(--g);border-radius:10px;color:#fff;font-weight:700;margin-bottom:10px;">Translate</button>
+    <div id="translator-result-box" style="background:var(--s2);border-radius:10px;padding:12px;font-size:14px;color:var(--t1);line-height:1.5;min-height:48px;"></div>
+  </div>
+</div>
+
+<!-- ANONYMOUS POST MODAL -->
+<div id="anon-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('anon-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🎭 Anonymous Post</span><button onclick="closeModal('anon-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <p style="font-size:13px;color:var(--t2);margin-bottom:12px;">Your name is hidden from everyone. Only you and the CEO can see who posted.</p>
+    <textarea id="anon-inp" placeholder="What's on your mind?" rows="4" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);resize:none;margin-bottom:12px;"></textarea>
+    <button onclick="sendAnonPost()" style="width:100%;padding:13px;background:linear-gradient(135deg,#7C3AED,#6D28D9);border-radius:12px;font-weight:700;color:#fff;">Post Anonymously 🎭</button>
+  </div>
+</div>
+
+<!-- POLL EVERYWHERE MODAL -->
+<div id="poll-everywhere-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('poll-everywhere-modal')">
+  <div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">📊 Create Poll</span><button onclick="closeModal('poll-everywhere-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+    <input id="poll-q-inp" placeholder="Ask a question…" style="width:100%;padding:12px;background:var(--s2);border-radius:10px;font-size:14px;color:var(--t1);margin-bottom:10px;">
+    <div id="poll-opts-wrap">
+      <input placeholder="Option 1" class="poll-opt-inp" style="width:100%;padding:10px 12px;background:var(--s2);border-radius:10px;font-size:13px;color:var(--t1);margin-bottom:8px;">
+      <input placeholder="Option 2" class="poll-opt-inp" style="width:100%;padding:10px 12px;background:var(--s2);border-radius:10px;font-size:13px;color:var(--t1);margin-bottom:8px;">
+    </div>
+    <button onclick="addPollOpt()" style="color:var(--g);font-size:13px;margin-bottom:12px;">+ Add option</button>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+      <span style="font-size:13px;color:var(--t2);">Anonymous votes</span>
+      <div class="toggle" id="anon-vote-tog" onclick="this.classList.toggle('on')"></div>
+    </div>
+    <button onclick="sendPollEverywhere()" style="width:100%;padding:13px;background:var(--g);border-radius:12px;font-weight:700;color:#fff;">Send Poll</button>
+    <input type="hidden" id="poll-chat-type">
+  </div>
+</div>
+
+<script src="core-utils.js"></script>
+<script src="chat-messaging.js"></script>
+<script src="status-auth-misc.js"></script>
+<script src="feed.js"></script>
+<script src="social-calls.js"></script>
+<script src="extras.js"></script>
+<script src="mkj-ai.js"></script>
+</body>
+</html>
