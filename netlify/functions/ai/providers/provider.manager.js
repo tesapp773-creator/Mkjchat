@@ -75,6 +75,23 @@ function resolveProvider(name) {
 }
 
 /**
+ * Get the next available provider other than the one that just failed.
+ * Used for automatic runtime fallback (e.g. Gemini hit a rate limit mid
+ * -request) - distinct from getDefaultProvider(), which only checks
+ * config at selection time, before any request has been attempted.
+ * @param {string} excludeName - Name of the provider that just failed.
+ * @returns {import('./base.provider')|null} A fallback provider, or null if none available.
+ */
+function getFallbackProvider(excludeName) {
+  for (const [name, candidate] of registry.entries()) {
+    if (name !== excludeName && candidate.isAvailable()) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
  * List all registered providers and their availability - for health checks.
  * @returns {Array<{name: string, available: boolean}>}
  */
@@ -98,6 +115,7 @@ function registerProvider(name, providerInstance) {
 module.exports = {
   getProvider,
   getDefaultProvider,
+  getFallbackProvider,
   resolveProvider,
   listProviders,
   registerProvider,
