@@ -71,8 +71,13 @@ const MODELS = Object.freeze({
     VISION: 'gemini-2.0-flash',
   },
   OPENROUTER: {
-    DEFAULT: 'openai/gpt-4o-mini',
-    FALLBACK: 'meta-llama/llama-3.1-8b-instruct',
+    // 'openrouter/free' is OpenRouter's own auto-router: it picks
+    // whichever currently-free model fits the request, at zero cost,
+    // no billing required. Free-tier specific model IDs (e.g. ending in
+    // ':free') rotate in and out of OpenRouter's catalog frequently, so
+    // hardcoding one is fragile - the auto-router avoids that problem.
+    DEFAULT: 'openrouter/free',
+    FALLBACK: 'openrouter/free',
   },
 });
 
