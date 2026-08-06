@@ -3,6 +3,7 @@
 const { resolveProvider, getFallbackProvider } = require('../providers/provider.manager');
 const { renderPrompt } = require('../prompts/prompt.loader');
 const { requireString, validateHistory, capMessageLength } = require('../utils/validate');
+const { safeJsonParse } = require('../utils/async');
 const { ROLES, LIMITS, HTTP_STATUS, PROVIDERS } = require('../constants');
 const { ProviderError } = require('../errors/AppError');
 const imageService = require('./image.service');
@@ -35,6 +36,35 @@ const IMAGE_TOOL = [
     ],
   },
 ];
+
+/**
+ * Some Gemini responses "narrate" a tool call as plain JSON text instead
+ * of using the API's native structured functionCall mechanism - e.g.
+ * replying with `{"tool": "generate_image", "arguments": {"prompt": "..."}}`
+ * as the message body. This is a fallback net that catches that pattern
+ * so image generation still works even when Gemini expresses the call
+ * this way rather than natively. Handles the text being wrapped in a
+ * markdown code fence too, since that's another common variant.
+ * @param {string} text
+ * @returns {{name: string, args: object}|null}
+ */
+function detectImageCallInText(text) {
+  if (!text) return null;
+  const stripped = text.trim().replace(/^```json\s*|^```\s*|```$/g, '').trim();
+  if (!stripped.startsWith('{')) return null;
+
+  const parsed = safeJsonParse(stripped, null);
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  // Accept a couple of shapes models commonly narrate in.
+  const toolName = parsed.tool || parsed.name || parsed.function;
+  if (toolName !== 'generate_image') return null;
+
+  const prompt = parsed.arguments?.prompt || parsed.args?.prompt || parsed.parameters?.prompt;
+  if (!prompt) return null;
+
+  return { name: 'generate_image', args: { prompt } };
+}
 
 /**
  * Whether a failure from a provider is the kind that's worth retrying on
@@ -146,8 +176,10 @@ async function generateChatResponse(params = {}) {
     result = await fallback.chatComplete({ ...requestArgs, tools: null });
   }
 
-  if (result.functionCall && result.functionCall.name === 'generate_image') {
-    const prompt = result.functionCall.args?.prompt || message;
+  const functionCall = result.functionCall || detectImageCallInText(result.text);
+
+  if (functionCall && functionCall.name === 'generate_image') {
+    const prompt = functionCall.args?.prompt || message;
     logger.info('Chat request resolved to image generation', { prompt });
     const image = await imageService.generateImage({ prompt });
     return {
