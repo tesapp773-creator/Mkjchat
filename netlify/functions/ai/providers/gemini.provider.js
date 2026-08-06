@@ -37,6 +37,11 @@ class GeminiProvider extends BaseProvider {
 
   /**
    * @param {object} params
+   * @param {Array} [params.tools] - Optional Gemini function-calling tool
+   *   declarations. When provided, Gemini may respond with a functionCall
+   *   part instead of (or alongside) text, letting the model decide when
+   *   a request needs a tool - e.g. image generation - based on the
+   *   natural language of the message, not keyword matching.
    * @returns {Promise<object>} Normalized result (see BaseProvider docs).
    */
   async chatComplete(params) {
@@ -47,6 +52,7 @@ class GeminiProvider extends BaseProvider {
       temperature = 0.7,
       maxOutputTokens = 2048,
       systemPrompt = null,
+      tools = null,
     } = params;
 
     const contents = messages
@@ -68,6 +74,10 @@ class GeminiProvider extends BaseProvider {
       body.systemInstruction = {
         parts: [{ text: systemPrompt }],
       };
+    }
+
+    if (tools) {
+      body.tools = tools;
     }
 
     const url = `${providerConfig.baseUrl}/models/${model}:generateContent?key=${providerConfig.apiKey}`;
@@ -107,11 +117,13 @@ class GeminiProvider extends BaseProvider {
 
     const text = this._extractText(raw);
     const usage = this._extractUsage(raw);
+    const functionCall = this._extractFunctionCall(raw);
 
     return {
       provider: this.name,
       model,
       text,
+      functionCall,
       raw,
       usage,
     };
@@ -126,6 +138,28 @@ class GeminiProvider extends BaseProvider {
       return parts.map((p) => p.text || '').join('');
     } catch (_err) {
       return '';
+    }
+  }
+
+  /**
+   * Extract a function call from Gemini's response, if the model chose
+   * to invoke a tool instead of (or alongside) replying with text.
+   * @returns {{name: string, args: object}|null}
+   */
+  // eslint-disable-next-line class-methods-use-this
+  _extractFunctionCall(raw) {
+    try {
+      const candidate = raw.candidates && raw.candidates[0];
+      const parts = candidate && candidate.content && candidate.content.parts;
+      if (!parts) return null;
+      const callPart = parts.find((p) => p.functionCall);
+      if (!callPart) return null;
+      return {
+        name: callPart.functionCall.name,
+        args: callPart.functionCall.args || {},
+      };
+    } catch (_err) {
+      return null;
     }
   }
 
