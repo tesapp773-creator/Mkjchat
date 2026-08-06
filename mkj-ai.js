@@ -152,13 +152,62 @@ async function respondAsMkjAi(aiChatId, triggerMsg) {
       throw new Error((data && data.error && data.error.message) || `AI Core HTTP ${res.status}`);
     }
 
-    const replyText = (data.data && data.data.text && data.data.text.trim()) || "Sorry, I don't have a response for that.";
-    await pushMkjAiMessage(aiChatId, replyText);
+    if (data.data && data.data.type === 'image') {
+      await pushMkjAiImage(aiChatId, data.data);
+    } else {
+      const replyText = (data.data && data.data.text && data.data.text.trim()) || "Sorry, I don't have a response for that.";
+      await pushMkjAiMessage(aiChatId, replyText);
+    }
   } catch (err) {
     console.error('[mkj-ai] chat request failed:', err);
     await pushMkjAiMessage(aiChatId, "Sorry — I couldn't process that just now. Please try again in a moment.");
   } finally {
     typingRef.remove();
+  }
+}
+
+/**
+ * Convert a base64 image (returned by the AI Core's image.generate
+ * action) into a File, upload it through the SAME Cloudinary pipeline
+ * every other photo message already uses (uploadCld, in core-utils.js),
+ * then push it as a normal image-type chat message.
+ */
+async function pushMkjAiImage(aiChatId, imageData) {
+  try {
+    const byteChars = atob(imageData.image.base64);
+    const byteNumbers = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+    const byteArray = new Uint8Array(byteNumbers);
+    const ext = imageData.image.mimeType === 'image/png' ? 'png' : 'jpg';
+    const file = new File([byteArray], `mkj-ai-${Date.now()}.${ext}`, { type: imageData.image.mimeType });
+
+    const url = await uploadCld(file);
+
+    const msg = {
+      uid: MKJ_AI_UID,
+      username: MKJ_AI_NAME,
+      mkjNumber: MKJ_AI_BADGE,
+      photoURL: MKJ_AI_PHOTO,
+      url,
+      time: ts(),
+      timestamp: Date.now(),
+      type: 'image',
+    };
+    await db.ref(`private_chats/${aiChatId}`).push(msg);
+
+    const isChatCurrentlyOpen = chatId === aiChatId;
+    await db.ref(`conversations/${me.uid}/${aiChatId}`).transaction((prev) => ({
+      targetUid: MKJ_AI_UID,
+      targetUsername: MKJ_AI_NAME,
+      targetMKJ: MKJ_AI_BADGE,
+      targetPhoto: MKJ_AI_PHOTO,
+      lastMessage: '[image]',
+      timestamp: Date.now(),
+      unread: isChatCurrentlyOpen ? 0 : ((prev && prev.unread) || 0) + 1,
+    }));
+  } catch (err) {
+    console.error('[mkj-ai] image delivery failed:', err);
+    await pushMkjAiMessage(aiChatId, "I generated an image but couldn't deliver it — please try again.");
   }
 }
 
