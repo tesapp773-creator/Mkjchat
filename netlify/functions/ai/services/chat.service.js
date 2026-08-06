@@ -67,6 +67,58 @@ function detectImageCallInText(text) {
 }
 
 /**
+ * Cheap guard so detectImageRefusalInText only fires on messages that
+ * actually look like an image request in the first place - otherwise a
+ * completely unrelated conversation that happens to mention "DALL-E" or
+ * "I can't generate" (e.g. "what's the difference between DALL-E and
+ * Midjourney?") would incorrectly get treated as an image request.
+ * @param {string} message
+ * @returns {boolean}
+ */
+function looksLikeImageRequest(message) {
+  return /\b(generate|create|draw|make|show|design)\b.{0,15}\b(image|picture|photo|pic|drawing|illustration|artwork)\b/i.test(
+    message
+  );
+}
+
+/**
+ * Some Gemini responses fall back to its trained "I can't generate
+ * images, but here's a prompt you can paste into DALL-E/Midjourney"
+ * behavior instead of using the tool - even though it just wrote a
+ * perfectly good, detailed image prompt in the process. Rather than
+ * showing the user that refusal (which is exactly what we don't want -
+ * this app generates the image itself, it never hands the user off to
+ * another tool), this detects that pattern and pulls the prompt Gemini
+ * already wrote back out, so the image still gets generated silently.
+ *
+ * Only called when the user's ORIGINAL message already looks like an
+ * image request (see looksLikeImageRequest) - this guards against
+ * misfiring on an unrelated conversation that happens to mention an
+ * image-tool's name or the phrase "can't generate".
+ * @param {string} text
+ * @param {string} originalMessage - The user's own message, used as a
+ *   fallback prompt if no usable prompt can be extracted from the text.
+ * @returns {{name: string, args: object}|null}
+ */
+function detectImageRefusalInText(text, originalMessage) {
+  if (!text || !looksLikeImageRequest(originalMessage)) return null;
+
+  const mentionsExternalTool = /\b(DALL-?E|Midjourney|Stable Diffusion|image[- ]?generator)\b/i.test(text);
+  const claimsCantGenerate = /\b(I can'?t|I'?m unable to|I don'?t have the ability to)\b.{0,40}\b(generate|create|produce|make)\b.{0,20}\bimage/i.test(
+    text
+  );
+  if (!mentionsExternalTool && !claimsCantGenerate) return null;
+
+  // Try to pull out a prompt Gemini already wrote, e.g. after a
+  // "**Prompt:**" label, or inside the first *asterisk-wrapped* or
+  // "quoted" block - covers the common ways it formats this.
+  const labelMatch = text.match(/\*{0,2}prompt:?\*{0,2}\s*\n*\*?"?([^\n*"]{15,400})/i);
+  const extractedPrompt = labelMatch ? labelMatch[1].trim() : null;
+
+  return { name: 'generate_image', args: { prompt: extractedPrompt || originalMessage } };
+}
+
+/**
  * Whether a failure from a provider is the kind that's worth retrying on
  * a DIFFERENT provider (rate limit / quota / that provider being down),
  * as opposed to something that would fail identically everywhere (bad
@@ -134,7 +186,11 @@ async function generateChatResponse(params = {}) {
   const requestArgs = {
     messages,
     model: params.model,
-    temperature: params.temperature,
+    // Lower temperature specifically when the image tool is offered:
+    // Gemini follows an explicit "use this tool" instruction far more
+    // consistently at lower randomness. A caller-supplied temperature
+    // always wins - this only fills in a better default.
+    temperature: params.temperature ?? (enableImageTool && provider.name === PROVIDERS.GEMINI ? 0.3 : 0.7),
     maxOutputTokens: params.maxOutputTokens,
     systemPrompt,
     // Only Gemini's provider implements function-calling here - passing
@@ -176,7 +232,8 @@ async function generateChatResponse(params = {}) {
     result = await fallback.chatComplete({ ...requestArgs, tools: null });
   }
 
-  const functionCall = result.functionCall || detectImageCallInText(result.text);
+  const functionCall =
+    result.functionCall || detectImageCallInText(result.text) || detectImageRefusalInText(result.text, message);
 
   if (functionCall && functionCall.name === 'generate_image') {
     const prompt = functionCall.args?.prompt || message;
