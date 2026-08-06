@@ -3,119 +3,69 @@
 const { resolveProvider, getFallbackProvider } = require('../providers/provider.manager');
 const { renderPrompt } = require('../prompts/prompt.loader');
 const { requireString, validateHistory, capMessageLength } = require('../utils/validate');
-const { safeJsonParse } = require('../utils/async');
-const { ROLES, LIMITS, HTTP_STATUS, PROVIDERS } = require('../constants');
+const { ROLES, LIMITS, HTTP_STATUS } = require('../constants');
 const { ProviderError } = require('../errors/AppError');
 const imageService = require('./image.service');
 const logger = require('../utils/logger');
 
 /**
- * Gemini function-calling tool declaration for image generation. Passing
- * this lets Gemini itself decide - from the natural language of the
- * message - whether the user is asking for an image, rather than the
- * backend matching keywords or a "/image" command prefix.
+ * MKJ AI Core - Chat Service
+ * -----------------------------------------------------------------------
+ * Orchestrates a chat completion request. This is where business logic
+ * for "what does an AI chat turn look like" lives - prompt selection,
+ * history assembly, provider selection - but it contains ZERO
+ * provider-specific code. It only ever talks to the BaseProvider
+ * interface via provider.manager.
+ *
+ * IMAGE REQUESTS: earlier versions of this file asked Gemini to decide
+ * (via function-calling / tool-use) whether a message needed an image.
+ * In practice Gemini narrated that decision in several different,
+ * inconsistent, unparseable formats instead of using its tool reliably.
+ * So that decision now lives in OUR code (looksLikeImageRequest, a
+ * simple keyword check on the user's own message) - deterministic,
+ * not dependent on the model's mood. Gemini is only asked, afterward,
+ * to help write a good image prompt - a plain text reply, which it is
+ * completely reliable at, unlike structured tool-calling here.
  */
-const IMAGE_TOOL = [
-  {
-    functionDeclarations: [
-      {
-        name: 'generate_image',
-        description:
-          'Generate an image from a text description. Call this whenever the user asks to see, create, draw, generate, or make a picture/image/photo of something.',
-        parameters: {
-          type: 'object',
-          properties: {
-            prompt: {
-              type: 'string',
-              description: 'A clear, detailed description of the image to generate.',
-            },
-          },
-          required: ['prompt'],
-        },
-      },
-    ],
-  },
-];
 
 /**
- * Some Gemini responses "narrate" a tool call as plain JSON text instead
- * of using the API's native structured functionCall mechanism - e.g.
- * replying with `{"tool": "generate_image", "arguments": {"prompt": "..."}}`
- * as the message body. This is a fallback net that catches that pattern
- * so image generation still works even when Gemini expresses the call
- * this way rather than natively. Handles the text being wrapped in a
- * markdown code fence too, since that's another common variant.
- * @param {string} text
- * @returns {{name: string, args: object}|null}
- */
-function detectImageCallInText(text) {
-  if (!text) return null;
-  const stripped = text.trim().replace(/^```json\s*|^```\s*|```$/g, '').trim();
-  if (!stripped.startsWith('{')) return null;
-
-  const parsed = safeJsonParse(stripped, null);
-  if (!parsed || typeof parsed !== 'object') return null;
-
-  // Accept a couple of shapes models commonly narrate in.
-  const toolName = parsed.tool || parsed.name || parsed.function;
-  if (toolName !== 'generate_image') return null;
-
-  const prompt = parsed.arguments?.prompt || parsed.args?.prompt || parsed.parameters?.prompt;
-  if (!prompt) return null;
-
-  return { name: 'generate_image', args: { prompt } };
-}
-
-/**
- * Cheap guard so detectImageRefusalInText only fires on messages that
- * actually look like an image request in the first place - otherwise a
- * completely unrelated conversation that happens to mention "DALL-E" or
- * "I can't generate" (e.g. "what's the difference between DALL-E and
- * Midjourney?") would incorrectly get treated as an image request.
+ * Whether a message reads as an image request.
  * @param {string} message
  * @returns {boolean}
  */
 function looksLikeImageRequest(message) {
-  return /\b(generate|create|draw|make|show|design)\b.{0,15}\b(image|picture|photo|pic|drawing|illustration|artwork)\b/i.test(
+  return /\b(generate|create|draw|make|show|design|paint)\b.{0,15}\b(image|picture|photo|pic|drawing|illustration|artwork)\b/i.test(
     message
   );
 }
 
 /**
- * Some Gemini responses fall back to its trained "I can't generate
- * images, but here's a prompt you can paste into DALL-E/Midjourney"
- * behavior instead of using the tool - even though it just wrote a
- * perfectly good, detailed image prompt in the process. Rather than
- * showing the user that refusal (which is exactly what we don't want -
- * this app generates the image itself, it never hands the user off to
- * another tool), this detects that pattern and pulls the prompt Gemini
- * already wrote back out, so the image still gets generated silently.
- *
- * Only called when the user's ORIGINAL message already looks like an
- * image request (see looksLikeImageRequest) - this guards against
- * misfiring on an unrelated conversation that happens to mention an
- * image-tool's name or the phrase "can't generate".
- * @param {string} text
- * @param {string} originalMessage - The user's own message, used as a
- *   fallback prompt if no usable prompt can be extracted from the text.
- * @returns {{name: string, args: object}|null}
+ * Ask Gemini to turn a short user request into a detailed image-generation
+ * prompt - a plain text completion, not a tool call, so it doesn't hit
+ * the same reliability problem. If this fails for any reason (quota,
+ * network, etc.), we fall back to the user's own words rather than
+ * failing the whole image request over a missing "nice-to-have" step.
+ * @param {string} message
+ * @returns {Promise<string>}
  */
-function detectImageRefusalInText(text, originalMessage) {
-  if (!text || !looksLikeImageRequest(originalMessage)) return null;
-
-  const mentionsExternalTool = /\b(DALL-?E|Midjourney|Stable Diffusion|image[- ]?generator)\b/i.test(text);
-  const claimsCantGenerate = /\b(I can'?t|I'?m unable to|I don'?t have the ability to)\b.{0,40}\b(generate|create|produce|make)\b.{0,20}\bimage/i.test(
-    text
-  );
-  if (!mentionsExternalTool && !claimsCantGenerate) return null;
-
-  // Try to pull out a prompt Gemini already wrote, e.g. after a
-  // "**Prompt:**" label, or inside the first *asterisk-wrapped* or
-  // "quoted" block - covers the common ways it formats this.
-  const labelMatch = text.match(/\*{0,2}prompt:?\*{0,2}\s*\n*\*?"?([^\n*"]{15,400})/i);
-  const extractedPrompt = labelMatch ? labelMatch[1].trim() : null;
-
-  return { name: 'generate_image', args: { prompt: extractedPrompt || originalMessage } };
+async function expandImagePrompt(message) {
+  try {
+    const provider = resolveProvider('gemini');
+    const result = await provider.chatComplete({
+      messages: [{ role: ROLES.USER, content: message }],
+      systemPrompt:
+        'Rewrite the user\'s request as a single, vivid, detailed image-generation prompt (style, lighting, composition). Reply with ONLY the prompt text - no preamble, no quotes, no explanation, nothing else.',
+      temperature: 0.6,
+      maxOutputTokens: 200,
+    });
+    const expanded = (result.text || '').trim();
+    return expanded || message;
+  } catch (err) {
+    logger.warn('Image prompt expansion failed, using the raw message instead', {
+      reason: err.message,
+    });
+    return message;
+  }
 }
 
 /**
@@ -138,19 +88,6 @@ function isFallbackWorthy(err) {
 }
 
 /**
- * MKJ AI Core - Chat Service
- * -----------------------------------------------------------------------
- * Orchestrates a chat completion request. This is where business logic
- * for "what does an AI chat turn look like" lives - prompt selection,
- * history assembly, provider selection - but it contains ZERO
- * provider-specific code. It only ever talks to the BaseProvider
- * interface via provider.manager.
- *
- * This service is entirely new and independent of any existing chat or
- * translation code in the current backend.
- */
-
-/**
  * Generate an AI chat response.
  * @param {object} params
  * @param {string} params.message - The new user message.
@@ -161,15 +98,27 @@ function isFallbackWorthy(err) {
  * @param {object} [params.promptContext] - Context passed to the prompt renderer.
  * @param {number} [params.temperature]
  * @param {number} [params.maxOutputTokens]
- * @param {boolean} [params.enableImageTool=true] - Whether Gemini may
- *   choose to call the image-generation tool for this message.
  * @returns {Promise<{type: 'text'|'image', text?: string, image?: object, prompt?: string, provider: string, model: string}>}
  */
 async function generateChatResponse(params = {}) {
   const message = capMessageLength(requireString(params.message, 'message'), 'message', LIMITS.MAX_MESSAGE_LENGTH);
   const history = validateHistory(params.history, 'history');
   const promptId = params.promptId || 'chat';
-  const enableImageTool = params.enableImageTool !== false;
+
+  // Image intent is decided here, deterministically, BEFORE any provider
+  // call - see the big comment at the top of this file for why.
+  if (looksLikeImageRequest(message)) {
+    logger.info('Message looks like an image request, routing to image generation', { message });
+    const prompt = await expandImagePrompt(message);
+    const image = await imageService.generateImage({ prompt });
+    return {
+      type: 'image',
+      image,
+      prompt,
+      provider: image.provider,
+      model: null,
+    };
+  }
 
   const systemPrompt = renderPrompt(promptId, params.promptContext || {});
 
@@ -186,17 +135,9 @@ async function generateChatResponse(params = {}) {
   const requestArgs = {
     messages,
     model: params.model,
-    // Lower temperature specifically when the image tool is offered:
-    // Gemini follows an explicit "use this tool" instruction far more
-    // consistently at lower randomness. A caller-supplied temperature
-    // always wins - this only fills in a better default.
-    temperature: params.temperature ?? (enableImageTool && provider.name === PROVIDERS.GEMINI ? 0.3 : 0.7),
+    temperature: params.temperature,
     maxOutputTokens: params.maxOutputTokens,
     systemPrompt,
-    // Only Gemini's provider implements function-calling here - passing
-    // this to OpenRouter would just be ignored by that provider's
-    // request-building code, but we gate it explicitly for clarity.
-    tools: enableImageTool && provider.name === PROVIDERS.GEMINI ? IMAGE_TOOL : null,
   };
 
   let result;
@@ -225,27 +166,9 @@ async function generateChatResponse(params = {}) {
       reason: err.message,
     });
 
-    // Fallback provider doesn't get the image tool - image generation via
-    // natural-language detection is a Gemini-specific path for now. A
-    // fallback failure propagates as-is; the caller should see a real
-    // error rather than a swallowed one.
-    result = await fallback.chatComplete({ ...requestArgs, tools: null });
-  }
-
-  const functionCall =
-    result.functionCall || detectImageCallInText(result.text) || detectImageRefusalInText(result.text, message);
-
-  if (functionCall && functionCall.name === 'generate_image') {
-    const prompt = functionCall.args?.prompt || message;
-    logger.info('Chat request resolved to image generation', { prompt });
-    const image = await imageService.generateImage({ prompt });
-    return {
-      type: 'image',
-      image,
-      prompt,
-      provider: result.provider,
-      model: result.model,
-    };
+    // Let a fallback failure propagate as-is - if both providers are
+    // down, the caller should see a real error, not a swallowed one.
+    result = await fallback.chatComplete(requestArgs);
   }
 
   return {
