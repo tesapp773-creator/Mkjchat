@@ -60,6 +60,21 @@ const config = {
     },
   },
 
+  image: {
+    cloudflare: {
+      apiToken: readEnv('CLOUDFLARE_API_TOKEN'),
+      accountId: readEnv('CLOUDFLARE_ACCOUNT_ID'),
+      model: MODELS.CLOUDFLARE.FLUX,
+      baseUrl: 'https://api.cloudflare.com/client/v4/accounts',
+    },
+    pollinations: {
+      // No API key required - Pollinations is a free, keyless image API.
+      // Kept as a config entry (not hardcoded in the provider) so the
+      // base URL can be overridden without a code change if needed.
+      baseUrl: readEnv('POLLINATIONS_BASE_URL', { fallback: 'https://image.pollinations.ai' }),
+    },
+  },
+
   voice: {
     elevenlabs: {
       apiKey: readEnv('ELEVENLABS_API_KEY'),
@@ -119,6 +134,19 @@ function requireSearchConfig() {
 }
 
 /**
+ * Validate that Cloudflare Workers AI (image generation) is configured.
+ */
+function requireCloudflareImageConfig() {
+  const { apiToken, accountId } = config.image.cloudflare;
+  if (!apiToken || !accountId) {
+    throw new ConfigError(
+      'Cloudflare Workers AI is not configured. Missing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID.'
+    );
+  }
+  return config.image.cloudflare;
+}
+
+/**
  * Validate that ElevenLabs voice synthesis is configured.
  */
 function requireElevenLabsConfig() {
@@ -152,6 +180,10 @@ function getConfigStatus() {
     search: {
       tavily: Boolean(config.search.tavily.apiKey),
     },
+    image: {
+      cloudflare: Boolean(config.image.cloudflare.apiToken && config.image.cloudflare.accountId),
+      pollinations: true, // keyless, always considered available
+    },
     voice: {
       elevenlabs: Boolean(config.voice.elevenlabs.apiKey),
       livekit: Boolean(config.voice.livekit.apiKey && config.voice.livekit.apiSecret),
@@ -163,6 +195,7 @@ module.exports = {
   config,
   requireProviderConfig,
   requireSearchConfig,
+  requireCloudflareImageConfig,
   requireElevenLabsConfig,
   requireLiveKitConfig,
   getConfigStatus,
