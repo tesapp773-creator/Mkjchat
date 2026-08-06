@@ -12,9 +12,15 @@ const PROVIDERS = Object.freeze({
   OPENROUTER: 'openrouter',
 });
 
+const IMAGE_PROVIDERS = Object.freeze({
+  CLOUDFLARE: 'cloudflare',
+  POLLINATIONS: 'pollinations',
+});
+
 const ACTIONS = Object.freeze({
   CHAT: 'chat',
   SEARCH: 'search',
+  IMAGE_GENERATE: 'image.generate',
   VOICE_SYNTHESIZE: 'voice.synthesize',
   VOICE_TOKEN: 'voice.token',
   MEMORY_GET: 'memory.get',
@@ -26,6 +32,7 @@ const ACTIONS = Object.freeze({
 const SERVICE_NAMES = Object.freeze({
   CHAT: 'chat.service',
   SEARCH: 'search.service',
+  IMAGE: 'image.service',
   VOICE: 'voice.service',
   MEMORY: 'memory.service',
 });
@@ -79,6 +86,11 @@ const MODELS = Object.freeze({
     DEFAULT: 'openrouter/free',
     FALLBACK: 'openrouter/free',
   },
+  CLOUDFLARE: {
+    // FLUX.1 [schnell] via Cloudflare Workers AI. Fast, free-tier
+    // friendly, good quality-for-cost open model.
+    FLUX: '@cf/black-forest-labs/flux-1-schnell',
+  },
 });
 
 const VOICE = Object.freeze({
@@ -103,6 +115,7 @@ const ROLES = Object.freeze({
 
 module.exports = {
   PROVIDERS,
+  IMAGE_PROVIDERS,
   ACTIONS,
   SERVICE_NAMES,
   HTTP_STATUS,
