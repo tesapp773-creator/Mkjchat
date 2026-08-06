@@ -3,9 +3,38 @@
 const { resolveProvider, getFallbackProvider } = require('../providers/provider.manager');
 const { renderPrompt } = require('../prompts/prompt.loader');
 const { requireString, validateHistory, capMessageLength } = require('../utils/validate');
-const { ROLES, LIMITS, HTTP_STATUS } = require('../constants');
+const { ROLES, LIMITS, HTTP_STATUS, PROVIDERS } = require('../constants');
 const { ProviderError } = require('../errors/AppError');
+const imageService = require('./image.service');
 const logger = require('../utils/logger');
+
+/**
+ * Gemini function-calling tool declaration for image generation. Passing
+ * this lets Gemini itself decide - from the natural language of the
+ * message - whether the user is asking for an image, rather than the
+ * backend matching keywords or a "/image" command prefix.
+ */
+const IMAGE_TOOL = [
+  {
+    functionDeclarations: [
+      {
+        name: 'generate_image',
+        description:
+          'Generate an image from a text description. Call this whenever the user asks to see, create, draw, generate, or make a picture/image/photo of something.',
+        parameters: {
+          type: 'object',
+          properties: {
+            prompt: {
+              type: 'string',
+              description: 'A clear, detailed description of the image to generate.',
+            },
+          },
+          required: ['prompt'],
+        },
+      },
+    ],
+  },
+];
 
 /**
  * Whether a failure from a provider is the kind that's worth retrying on
@@ -50,12 +79,15 @@ function isFallbackWorthy(err) {
  * @param {object} [params.promptContext] - Context passed to the prompt renderer.
  * @param {number} [params.temperature]
  * @param {number} [params.maxOutputTokens]
- * @returns {Promise<import('../types').ChatCompletionResult>}
+ * @param {boolean} [params.enableImageTool=true] - Whether Gemini may
+ *   choose to call the image-generation tool for this message.
+ * @returns {Promise<{type: 'text'|'image', text?: string, image?: object, prompt?: string, provider: string, model: string}>}
  */
 async function generateChatResponse(params = {}) {
   const message = capMessageLength(requireString(params.message, 'message'), 'message', LIMITS.MAX_MESSAGE_LENGTH);
   const history = validateHistory(params.history, 'history');
   const promptId = params.promptId || 'chat';
+  const enableImageTool = params.enableImageTool !== false;
 
   const systemPrompt = renderPrompt(promptId, params.promptContext || {});
 
@@ -75,10 +107,15 @@ async function generateChatResponse(params = {}) {
     temperature: params.temperature,
     maxOutputTokens: params.maxOutputTokens,
     systemPrompt,
+    // Only Gemini's provider implements function-calling here - passing
+    // this to OpenRouter would just be ignored by that provider's
+    // request-building code, but we gate it explicitly for clarity.
+    tools: enableImageTool && provider.name === PROVIDERS.GEMINI ? IMAGE_TOOL : null,
   };
 
+  let result;
   try {
-    return await provider.chatComplete(requestArgs);
+    result = await provider.chatComplete(requestArgs);
   } catch (err) {
     // Only auto-fallback when the caller didn't explicitly request a
     // specific provider (params.provider), and only for failures that
@@ -102,10 +139,32 @@ async function generateChatResponse(params = {}) {
       reason: err.message,
     });
 
-    // Let a fallback failure propagate as-is - if both providers are
-    // down, the caller should see a real error, not a swallowed one.
-    return await fallback.chatComplete(requestArgs);
+    // Fallback provider doesn't get the image tool - image generation via
+    // natural-language detection is a Gemini-specific path for now. A
+    // fallback failure propagates as-is; the caller should see a real
+    // error rather than a swallowed one.
+    result = await fallback.chatComplete({ ...requestArgs, tools: null });
   }
+
+  if (result.functionCall && result.functionCall.name === 'generate_image') {
+    const prompt = result.functionCall.args?.prompt || message;
+    logger.info('Chat request resolved to image generation', { prompt });
+    const image = await imageService.generateImage({ prompt });
+    return {
+      type: 'image',
+      image,
+      prompt,
+      provider: result.provider,
+      model: result.model,
+    };
+  }
+
+  return {
+    type: 'text',
+    text: result.text,
+    provider: result.provider,
+    model: result.model,
+  };
 }
 
 module.exports = {
