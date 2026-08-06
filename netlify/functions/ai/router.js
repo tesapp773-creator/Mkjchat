@@ -7,6 +7,7 @@ const { getConfigStatus } = require('./config');
 
 const chatService = require('./services/chat.service');
 const searchService = require('./services/search.service');
+const imageService = require('./services/image.service');
 const voiceService = require('./services/voice.service');
 const memoryService = require('./services/memory.service');
 const { listProviders } = require('./providers/provider.manager');
@@ -31,6 +32,8 @@ const handlers = {
   [ACTIONS.CHAT]: async (payload) => chatService.generateChatResponse(payload),
 
   [ACTIONS.SEARCH]: async (payload) => searchService.search(payload),
+
+  [ACTIONS.IMAGE_GENERATE]: async (payload) => imageService.generateImage(payload),
 
   [ACTIONS.VOICE_SYNTHESIZE]: async (payload) => voiceService.synthesizeSpeech(payload),
 
