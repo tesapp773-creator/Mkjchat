@@ -1,6 +1,7 @@
 'use strict';
 
 const GeminiProvider = require('./gemini.provider');
+const CloudflareChatProvider = require('./cloudflare-chat.provider');
 const OpenRouterProvider = require('./openrouter.provider');
 const { PROVIDERS } = require('../constants');
 const { config } = require('../config');
@@ -19,10 +20,18 @@ const logger = require('../utils/logger');
  *   1. Create providers/<name>.provider.js implementing BaseProvider.
  *   2. Register it in the `registry` map below.
  *   3. Nothing else in the codebase changes.
+ *
+ * REGISTRATION ORDER MATTERS: getFallbackProvider() below walks this map
+ * in insertion order and returns the first available match. Cloudflare
+ * is registered before OpenRouter so it's tried first as the chat
+ * fallback - it reuses the same Cloudflare account already set up for
+ * image generation, rather than depending on OpenRouter's separate
+ * account/credit-balance state.
  */
 
 const registry = new Map([
   [PROVIDERS.GEMINI, new GeminiProvider()],
+  [PROVIDERS.CLOUDFLARE, new CloudflareChatProvider()],
   [PROVIDERS.OPENROUTER, new OpenRouterProvider()],
 ]);
 
