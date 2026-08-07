@@ -6,6 +6,7 @@ const { requireString, validateHistory, capMessageLength } = require('../utils/v
 const { ROLES, LIMITS, HTTP_STATUS } = require('../constants');
 const { ProviderError } = require('../errors/AppError');
 const imageService = require('./image.service');
+const searchService = require('./search.service');
 const logger = require('../utils/logger');
 
 /**
@@ -37,6 +38,57 @@ function looksLikeImageRequest(message) {
   return /\b(generate|create|draw|make|show|design|paint)\b.{0,15}\b(image|picture|photo|pic|drawing|illustration|artwork)\b/i.test(
     message
   );
+}
+
+/**
+ * Whether a message reads as a web-search request - something needing
+ * current/live information the model's own training data can't have
+ * (news, prices, scores, "what's happening", etc.), as opposed to a
+ * general-knowledge question the model can already answer on its own.
+ * Deliberately narrow: false negatives (missing a search-worthy message)
+ * just mean a normal chat answer, which is a safe fallback. False
+ * positives would waste a Tavily call, so the pattern stays specific.
+ * @param {string} message
+ * @returns {boolean}
+ */
+function looksLikeSearchRequest(message) {
+  return /\b(search( the web)?( for)?|look up|google)\b|\b(latest|current|recent|today'?s|this week'?s)\b.{0,20}\b(news|price|score|update|result|event|weather)\b|\bwho (won|is winning)\b|\bwhat(?:'?s| is) happening\b|\bwhat happened (today|yesterday|this week)\b/i.test(
+    message
+  );
+}
+
+/**
+ * Run a Tavily search, then ask Gemini to turn the raw results into a
+ * natural, cited chat answer - a plain text completion, same reliable
+ * pattern as expandImagePrompt below. If Gemini fails, fall back to
+ * Tavily's own built-in short answer rather than failing outright.
+ * @param {string} message
+ * @returns {Promise<string>}
+ */
+async function answerFromSearch(message) {
+  const searchResult = await searchService.search({ query: message });
+
+  const sourcesText = searchResult.results
+    .slice(0, 5)
+    .map((r, i) => `[${i + 1}] ${r.title}\n${r.content}\nSource: ${r.url}`)
+    .join('\n\n');
+
+  try {
+    const provider = resolveProvider('gemini');
+    const result = await provider.chatComplete({
+      messages: [{ role: ROLES.USER, content: message }],
+      systemPrompt: `Answer the user's question using ONLY the search results below. Be concise, natural, and conversational - this is a chat reply, not a report. Mention sources briefly where relevant (e.g. "according to..."), don't just list them.\n\nSearch results:\n${sourcesText}\n\nQuick answer if available: ${searchResult.answer || 'none'}`,
+      temperature: 0.5,
+      maxOutputTokens: 500,
+    });
+    const answer = (result.text || '').trim();
+    return answer || searchResult.answer || "I searched but couldn't put together a clear answer - please try rephrasing.";
+  } catch (err) {
+    logger.warn('Search answer synthesis failed, using Tavily\'s own summary instead', {
+      reason: err.message,
+    });
+    return searchResult.answer || "I found some results but couldn't summarize them just now - please try again.";
+  }
 }
 
 /**
@@ -118,6 +170,28 @@ async function generateChatResponse(params = {}) {
       provider: image.provider,
       model: null,
     };
+  }
+
+  // Same deterministic-trigger pattern for search: our own code decides
+  // if this needs current/live information, not the model. If Tavily
+  // itself is unavailable, don't hard-fail the whole request - fall
+  // through to a normal chat answer instead (imperfect, but better than
+  // an error for something the model might partially know anyway).
+  if (looksLikeSearchRequest(message)) {
+    logger.info('Message looks like a search request, routing to web search', { message });
+    try {
+      const text = await answerFromSearch(message);
+      return {
+        type: 'text',
+        text,
+        provider: 'tavily+gemini',
+        model: null,
+      };
+    } catch (err) {
+      logger.warn('Web search failed entirely, falling through to a normal chat answer', {
+        reason: err.message,
+      });
+    }
   }
 
   const systemPrompt = renderPrompt(promptId, params.promptContext || {});
