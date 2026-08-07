@@ -10,6 +10,10 @@
 const PROVIDERS = Object.freeze({
   GEMINI: 'gemini',
   OPENROUTER: 'openrouter',
+  // Same underlying Cloudflare account/credentials as IMAGE_PROVIDERS.CLOUDFLARE
+  // below, but this entry is for CHAT (text) completions - a separate
+  // registration in provider.manager's chat-provider registry.
+  CLOUDFLARE: 'cloudflare',
 });
 
 const IMAGE_PROVIDERS = Object.freeze({
@@ -90,6 +94,10 @@ const MODELS = Object.freeze({
     // FLUX.1 [schnell] via Cloudflare Workers AI. Fast, free-tier
     // friendly, good quality-for-cost open model.
     FLUX: '@cf/black-forest-labs/flux-1-schnell',
+    // Llama 3.1 8B - used for CHAT (text) completions, as the fallback
+    // when Gemini is rate-limited. Reliable, well-documented Workers AI
+    // text model, verified current as of this writing.
+    CHAT_DEFAULT: '@cf/meta/llama-3.1-8b-instruct',
   },
 });
 
