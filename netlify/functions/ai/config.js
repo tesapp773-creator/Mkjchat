@@ -50,6 +50,16 @@ const config = {
       appUrl: readEnv('OPENROUTER_APP_URL', { fallback: 'https://mkjchat.app' }),
       appName: readEnv('OPENROUTER_APP_NAME', { fallback: 'MKJ Chat' }),
     },
+    cloudflare: {
+      // Reuses the SAME Cloudflare account credentials as image.cloudflare
+      // below - one Cloudflare account, two capabilities (chat text +
+      // image generation). Chat completions use this entry; requires
+      // both apiKey (the Workers AI API token) and accountId.
+      apiKey: readEnv('CLOUDFLARE_API_TOKEN'),
+      accountId: readEnv('CLOUDFLARE_ACCOUNT_ID'),
+      defaultModel: MODELS.CLOUDFLARE.CHAT_DEFAULT,
+      baseUrl: 'https://api.cloudflare.com/client/v4/accounts',
+    },
   },
 
   search: {
@@ -147,6 +157,21 @@ function requireCloudflareImageConfig() {
 }
 
 /**
+ * Validate that Cloudflare Workers AI (chat/text completions) is
+ * configured. Separate from requireCloudflareImageConfig for a clear
+ * error message even though both read the same underlying env vars.
+ */
+function requireCloudflareChatConfig() {
+  const { apiKey, accountId } = config.providers.cloudflare;
+  if (!apiKey || !accountId) {
+    throw new ConfigError(
+      'Cloudflare Workers AI chat is not configured. Missing CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID.'
+    );
+  }
+  return config.providers.cloudflare;
+}
+
+/**
  * Validate that ElevenLabs voice synthesis is configured.
  */
 function requireElevenLabsConfig() {
@@ -176,6 +201,7 @@ function getConfigStatus() {
     providers: {
       gemini: Boolean(config.providers.gemini.apiKey),
       openrouter: Boolean(config.providers.openrouter.apiKey),
+      cloudflare: Boolean(config.providers.cloudflare.apiKey && config.providers.cloudflare.accountId),
     },
     search: {
       tavily: Boolean(config.search.tavily.apiKey),
@@ -196,6 +222,7 @@ module.exports = {
   requireProviderConfig,
   requireSearchConfig,
   requireCloudflareImageConfig,
+  requireCloudflareChatConfig,
   requireElevenLabsConfig,
   requireLiveKitConfig,
   getConfigStatus,
