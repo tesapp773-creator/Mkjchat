@@ -74,6 +74,10 @@ function openMkjAi() {
 
 // ── RESPONDER ────────────────────────────────────────────────────────
 let _mkjAiListenerAttached = false;
+// A brief window to let a caption arrive after a bare photo before
+// auto-describing it - see the listener below for why.
+let _pendingImageTimer = null;
+const IMAGE_CAPTION_WAIT_MS = 2500;
 
 function attachMkjAiResponder() {
   if (_mkjAiListenerAttached || !me) return;
@@ -91,7 +95,36 @@ function attachMkjAiResponder() {
     .on('child_added', (snap) => {
       const msg = snap.val();
       if (!msg || msg.uid !== me.uid) return; // only react to the human's own messages
-      if (msg.type && msg.type !== 'text') return; // Stage 1 is text-only; file/image AI comes in a later stage
+      // Text messages and images are both handled (see respondAsMkjAi,
+      // which figures out whether an image is attached to this turn).
+      // Anything else (voice notes, files, gifs) is still out of scope.
+      if (msg.type && msg.type !== 'text' && msg.type !== 'image') return;
+
+      if (msg.type === 'image') {
+        // This app sends a photo immediately on selection - there's no
+        // "attach, then type a caption, then send" compose step. So a
+        // caption is really just "the next message right after the
+        // photo". Wait briefly before auto-describing, in case that
+        // next message is about to arrive - avoids replying twice (once
+        // to the bare photo, once to the caption) when the user is
+        // clearly mid-thought, typing a question about what they just sent.
+        if (_pendingImageTimer) clearTimeout(_pendingImageTimer);
+        _pendingImageTimer = setTimeout(() => {
+          _pendingImageTimer = null;
+          respondAsMkjAi(aiChatId, msg).catch((err) => console.error('[mkj-ai] respond failed:', err));
+        }, IMAGE_CAPTION_WAIT_MS);
+        return;
+      }
+
+      // A text message arriving while a photo is still waiting for its
+      // caption window IS that caption - cancel the pending auto-describe.
+      // respondAsMkjAi's own preceding-message check (below) then attaches
+      // the photo to this text automatically, producing one combined reply.
+      if (_pendingImageTimer) {
+        clearTimeout(_pendingImageTimer);
+        _pendingImageTimer = null;
+      }
+
       respondAsMkjAi(aiChatId, msg).catch((err) => console.error('[mkj-ai] respond failed:', err));
     });
 }
@@ -116,12 +149,64 @@ async function buildMkjAiHistory(aiChatId, beforeTimestamp) {
   }
 }
 
+/**
+ * Fetch the single most recent message in the AI chat strictly before
+ * a given timestamp. Used to detect "the user just sent a photo, and
+ * this text message right after it is a caption/question about it" -
+ * this app doesn't have a compose-with-caption UI step, photos send
+ * immediately, so a caption is really just "the next message after the
+ * photo". If the AI already replied to that photo, ITS reply becomes
+ * the most recent message instead, so this naturally stops re-attaching
+ * an old photo to unrelated later messages.
+ * @param {string} aiChatId
+ * @param {number} beforeTimestamp
+ * @returns {Promise<object|null>}
+ */
+async function getPrecedingMessage(aiChatId, beforeTimestamp) {
+  try {
+    const snap = await db
+      .ref(`private_chats/${aiChatId}`)
+      .orderByChild('timestamp')
+      .endAt(beforeTimestamp - 1)
+      .limitToLast(1)
+      .once('value');
+    const data = snap.val() || {};
+    const values = Object.values(data);
+    return values.length ? values[0] : null;
+  } catch (e) {
+    console.error('[mkj-ai] preceding-message fetch failed:', e);
+    return null;
+  }
+}
+
 async function respondAsMkjAi(aiChatId, triggerMsg) {
   const typingRef = db.ref(`typing/private/${aiChatId}/${MKJ_AI_UID}`);
   typingRef.set(Date.now());
 
   try {
     const history = await buildMkjAiHistory(aiChatId, triggerMsg.timestamp);
+
+    // Figure out if an image is attached to this turn, and what the
+    // question/caption is - see getPrecedingMessage's doc comment above
+    // for why "the previous message" is how a caption is detected here.
+    // NOTE: the backend requires a non-empty message on every request
+    // (even ones with an image attached), so a bare photo with no
+    // caption always gets a sensible default question here - it can't
+    // be sent as an empty string.
+    const DEFAULT_IMAGE_QUESTION = 'Describe what is in this image in a friendly, conversational way.';
+    let imageUrl = null;
+    let question = triggerMsg.text || '';
+
+    if (triggerMsg.type === 'image') {
+      imageUrl = triggerMsg.url;
+      question = (triggerMsg.text && triggerMsg.text.trim()) || DEFAULT_IMAGE_QUESTION;
+    } else {
+      const prev = await getPrecedingMessage(aiChatId, triggerMsg.timestamp);
+      if (prev && prev.type === 'image' && prev.uid === me.uid) {
+        imageUrl = prev.url;
+        question = (triggerMsg.text && triggerMsg.text.trim()) || DEFAULT_IMAGE_QUESTION;
+      }
+    }
 
     let idToken = null;
     try {
@@ -139,10 +224,11 @@ async function respondAsMkjAi(aiChatId, triggerMsg) {
       body: JSON.stringify({
         action: 'chat',
         payload: {
-          message: triggerMsg.text || '',
+          message: question,
           history,
           promptId: 'chat',
           promptContext: { userName: me.username },
+          ...(imageUrl ? { imageUrl } : {}),
         },
       }),
     });
