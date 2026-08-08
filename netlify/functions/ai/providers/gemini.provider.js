@@ -142,6 +142,83 @@ class GeminiProvider extends BaseProvider {
   }
 
   /**
+   * Vision: answer a question about an image. Kept as a SEPARATE method
+   * from chatComplete (rather than overloading it with image parts) so
+   * this new feature cannot regress the existing, already-working text
+   * chat path - same isolation principle as image.service.js being
+   * separate from chat.service.js.
+   * @param {object} params
+   * @param {string} params.imageBase64 - Base64-encoded image data (no data: prefix).
+   * @param {string} params.mimeType - e.g. 'image/jpeg', 'image/png'.
+   * @param {string} params.question - What the user asked about the image.
+   * @param {string} [params.systemPrompt]
+   * @returns {Promise<{provider: string, model: string, text: string}>}
+   */
+  async describeImage(params) {
+    const providerConfig = requireProviderConfig(PROVIDERS.GEMINI);
+    const { imageBase64, mimeType, question, systemPrompt = null } = params;
+    const model = providerConfig.defaultModel;
+
+    const body = {
+      contents: [
+        {
+          role: 'user',
+          parts: [{ inlineData: { mimeType, data: imageBase64 } }, { text: question }],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.4,
+        maxOutputTokens: 800,
+      },
+    };
+
+    if (systemPrompt) {
+      body.systemInstruction = { parts: [{ text: systemPrompt }] };
+    }
+
+    const url = `${providerConfig.baseUrl}/models/${model}:generateContent?key=${providerConfig.apiKey}`;
+
+    const requestFn = async () => {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new ProviderError(`Gemini vision API error (${res.status})`, {
+          status: res.status,
+          body: errText,
+        });
+      }
+
+      return res.json();
+    };
+
+    let raw;
+    try {
+      raw = await withRetry(
+        () => withTimeout(requestFn(), config.defaults.requestTimeoutMs, 'Gemini describeImage'),
+        {
+          retries: 1,
+          shouldRetry: (err) => !(err instanceof ProviderError) || err.details?.status >= 500,
+        }
+      );
+    } catch (err) {
+      logger.error('Gemini vision request failed', { err, model });
+      if (err instanceof ProviderError) throw err;
+      throw new ProviderError('Failed to reach Gemini vision API', null, err);
+    }
+
+    return {
+      provider: this.name,
+      model,
+      text: this._extractText(raw),
+    };
+  }
+
+  /**
    * Extract a function call from Gemini's response, if the model chose
    * to invoke a tool instead of (or alongside) replying with text.
    * @returns {{name: string, args: object}|null}
