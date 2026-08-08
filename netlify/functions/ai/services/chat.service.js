@@ -7,6 +7,7 @@ const { ROLES, LIMITS, HTTP_STATUS } = require('../constants');
 const { ProviderError } = require('../errors/AppError');
 const imageService = require('./image.service');
 const searchService = require('./search.service');
+const visionService = require('./vision.service');
 const logger = require('../utils/logger');
 
 /**
@@ -150,12 +151,30 @@ function isFallbackWorthy(err) {
  * @param {object} [params.promptContext] - Context passed to the prompt renderer.
  * @param {number} [params.temperature]
  * @param {number} [params.maxOutputTokens]
+ * @param {string} [params.imageUrl] - If present, this turn has an image
+ *   attached (a photo the user sent to the AI) - routed to vision
+ *   handling instead of normal chat. This is an explicit signal from
+ *   the frontend, not a guess from message text, so there's no
+ *   detection heuristic needed here - it's simply "is this field set".
  * @returns {Promise<{type: 'text'|'image', text?: string, image?: object, prompt?: string, provider: string, model: string}>}
  */
 async function generateChatResponse(params = {}) {
   const message = capMessageLength(requireString(params.message, 'message'), 'message', LIMITS.MAX_MESSAGE_LENGTH);
   const history = validateHistory(params.history, 'history');
   const promptId = params.promptId || 'chat';
+
+  // An attached image is the most certain signal of all - checked first,
+  // ahead of the image-generation/search heuristics below.
+  if (params.imageUrl) {
+    logger.info('Message has an attached image, routing to vision', { hasQuestion: Boolean(params.message) });
+    const result = await visionService.describeImage({ imageUrl: params.imageUrl, question: message });
+    return {
+      type: 'text',
+      text: result.text,
+      provider: result.provider,
+      model: null,
+    };
+  }
 
   // Image intent is decided here, deterministically, BEFORE any provider
   // call - see the big comment at the top of this file for why.
