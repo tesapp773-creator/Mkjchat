@@ -21,6 +21,11 @@ const IMAGE_PROVIDERS = Object.freeze({
   POLLINATIONS: 'pollinations',
 });
 
+const VISION_PROVIDERS = Object.freeze({
+  GEMINI: 'gemini',
+  GROQ: 'groq',
+});
+
 const ACTIONS = Object.freeze({
   CHAT: 'chat',
   SEARCH: 'search',
@@ -37,6 +42,7 @@ const SERVICE_NAMES = Object.freeze({
   CHAT: 'chat.service',
   SEARCH: 'search.service',
   IMAGE: 'image.service',
+  VISION: 'vision.service',
   VOICE: 'voice.service',
   MEMORY: 'memory.service',
 });
@@ -99,6 +105,12 @@ const MODELS = Object.freeze({
     // text model, verified current as of this writing.
     CHAT_DEFAULT: '@cf/meta/llama-3.1-8b-instruct',
   },
+  GROQ: {
+    // Vision fallback model for describing/answering questions about
+    // images. Labeled "Preview" by Groq itself - see the comment in
+    // groq-vision.provider.js for what that means operationally here.
+    VISION: 'llama-3.2-90b-vision-preview',
+  },
 });
 
 const VOICE = Object.freeze({
@@ -124,6 +136,7 @@ const ROLES = Object.freeze({
 module.exports = {
   PROVIDERS,
   IMAGE_PROVIDERS,
+  VISION_PROVIDERS,
   ACTIONS,
   SERVICE_NAMES,
   HTTP_STATUS,
