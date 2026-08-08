@@ -107,9 +107,12 @@ const MODELS = Object.freeze({
   },
   GROQ: {
     // Vision fallback model for describing/answering questions about
-    // images. Labeled "Preview" by Groq itself - see the comment in
-    // groq-vision.provider.js for what that means operationally here.
-    VISION: 'llama-3.2-90b-vision-preview',
+    // images. Originally llama-3.2-90b-vision-preview, but that model
+    // (and its intended successor, llama-4-scout) were decommissioned
+    // by Groq. qwen/qwen3.6-27b is Groq's current, actively-documented
+    // vision model (not a "Preview" label) as of this update - verified
+    // directly against Groq's own docs before swapping in.
+    VISION: 'qwen/qwen3.6-27b',
   },
 });
 
