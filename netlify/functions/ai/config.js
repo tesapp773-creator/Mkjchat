@@ -60,6 +60,14 @@ const config = {
       defaultModel: MODELS.CLOUDFLARE.CHAT_DEFAULT,
       baseUrl: 'https://api.cloudflare.com/client/v4/accounts',
     },
+    groq: {
+      // Vision fallback (describing/answering questions about images
+      // users send to the AI). Separate account from everything else -
+      // free tier, no credit card, no shared quota with Gemini.
+      apiKey: readEnv('GROQ_API_KEY'),
+      baseUrl: 'https://api.groq.com/openai/v1',
+      visionModel: MODELS.GROQ.VISION,
+    },
   },
 
   search: {
@@ -172,6 +180,16 @@ function requireCloudflareChatConfig() {
 }
 
 /**
+ * Validate that Groq (vision fallback) is configured.
+ */
+function requireGroqConfig() {
+  if (!config.providers.groq.apiKey) {
+    throw new ConfigError('Groq vision is not configured. Missing GROQ_API_KEY.');
+  }
+  return config.providers.groq;
+}
+
+/**
  * Validate that ElevenLabs voice synthesis is configured.
  */
 function requireElevenLabsConfig() {
@@ -202,6 +220,7 @@ function getConfigStatus() {
       gemini: Boolean(config.providers.gemini.apiKey),
       openrouter: Boolean(config.providers.openrouter.apiKey),
       cloudflare: Boolean(config.providers.cloudflare.apiKey && config.providers.cloudflare.accountId),
+      groq: Boolean(config.providers.groq.apiKey),
     },
     search: {
       tavily: Boolean(config.search.tavily.apiKey),
@@ -223,6 +242,7 @@ module.exports = {
   requireSearchConfig,
   requireCloudflareImageConfig,
   requireCloudflareChatConfig,
+  requireGroqConfig,
   requireElevenLabsConfig,
   requireLiveKitConfig,
   getConfigStatus,
