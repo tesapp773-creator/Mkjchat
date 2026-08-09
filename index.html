@@ -1122,14 +1122,9 @@
 
 <!-- Private Chat Menu -->
 <div id="private-menu-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('private-menu-modal')">
-<div class="modal-box" style="padding:16px 14px 32px;">
+<div class="modal-box" style="padding:16px 14px 28px;max-height:80vh;overflow-y:auto;">
   <div style="width:40px;height:4px;background:var(--s2);border-radius:2px;margin:0 auto 16px;"></div>
-  <div class="ci" style="border-radius:12px;" onclick="openBgPicker('private');closeModal('private-menu-modal')"><i class="fa-solid fa-palette" style="color:var(--g);width:28px;font-size:18px;"></i><span style="color:var(--t1);font-size:14px;font-weight:500;">Chat Background</span></div>
-  <div class="ci" style="border-radius:12px;" onclick="setChatWallpaper('private');closeModal('private-menu-modal')"><i class="fa-solid fa-image" style="color:var(--blue);width:28px;font-size:18px;"></i><span style="color:var(--t1);font-size:14px;font-weight:500;">Set Wallpaper</span></div>
-  <div class="ci" style="border-radius:12px;" onclick="openModal('disappear-modal');closeModal('private-menu-modal')"><i class="fa-solid fa-clock" style="color:var(--amber);width:28px;font-size:18px;"></i><span style="color:var(--t1);font-size:14px;font-weight:500;">Disappearing Messages</span></div>
-  <div class="ci" style="border-radius:12px;" onclick="toggleMuteChat();closeModal('private-menu-modal')"><i class="fa-solid fa-bell-slash" id="mute-icon" style="color:var(--t2);width:28px;font-size:18px;"></i><span id="mute-label" style="color:var(--t1);font-size:14px;font-weight:500;">Mute Notifications</span></div>
-  <div class="ci" style="border-radius:12px;" onclick="openModal('pin-modal');loadPinned('private');closeModal('private-menu-modal')"><i class="fa-solid fa-thumbtack" style="color:var(--purple);width:28px;font-size:18px;"></i><span style="color:var(--t1);font-size:14px;font-weight:500;">Pinned Messages</span></div>
-  <div class="ci" style="border-radius:12px;" onclick="toggleBlock();closeModal('private-menu-modal')"><i class="fa-solid fa-ban" id="block-icon" style="color:var(--red);width:28px;font-size:18px;"></i><span id="block-label" style="color:var(--red);font-size:14px;font-weight:500;">Block User</span></div>
+  <div id="private-menu-items"></div>
 </div></div>
 
 <!-- Disappearing Messages -->
