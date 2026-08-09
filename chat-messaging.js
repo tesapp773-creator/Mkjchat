@@ -645,6 +645,23 @@ function openPrivate(uid,name,mkj,photo){
   db.ref(`conversations/${me.uid}/${chatId}`).update({unread:0,targetUid:uid,targetUsername:name,targetMKJ:mkj,targetPhoto:photo});
   recordProfileView(uid);
   setTimeout(()=>{loadDraftToInp(chatId,'p-inp');addFollowBtnToProfile(uid);},200);
+
+  // Cross-device consistency check: localStorage is per-device, so if
+  // this user was blocked from a DIFFERENT device, the fast check above
+  // wouldn't have caught it. Verify against Firebase (the real source
+  // of truth, per the Blocked Users list) right after opening, and
+  // self-correct - both the local cache and the just-opened chat - if
+  // it turns out they really are blocked. Doesn't slow down the normal
+  // (not blocked) case, which is still instant via the check above.
+  db.ref(`blocks/${me.uid}/${uid}`).once('value').then(s=>{
+    if(s.val()===true&&localStorage.getItem(`blocked_${uid}`)!=='true'){
+      localStorage.setItem(`blocked_${uid}`,'true');
+      if(chatTarget&&chatTarget.uid===uid){
+        showView('chats');
+        toast('You have blocked this user','error');
+      }
+    }
+  }).catch(e=>console.error('[block-check] verification failed:',e));
 }
 function loadPrivMsgs(){
   const c=$('priv-msgs');c.innerHTML='';privMsgCursor=null;

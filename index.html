@@ -425,6 +425,7 @@
       <div class="feat-row" style="cursor:pointer;" onclick="openModal('chat-lock-modal')"><div class="feat-left"><div class="feat-icon" style="background:#00A88422;"><i class="fa-solid fa-lock" style="color:var(--g);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Chat Lock (PIN)</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
       <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#7C3AED22;"><i class="fa-solid fa-shield" style="color:var(--purple);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Two-Factor Auth</div></div></div><div id="tog-2fa" class="toggle" onclick="toggle2FA()"></div></div>
       <div class="feat-row"><div class="feat-left"><div class="feat-icon" style="background:#ef444422;"><i class="fa-solid fa-user-shield" style="color:var(--red);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Privacy Screen</div></div></div><div id="tog-privacy-screen" class="toggle" onclick="togglePrivacyScreen()"></div></div>
+      <div class="feat-row" style="cursor:pointer;" onclick="openBlockedUsersModal()"><div class="feat-left"><div class="feat-icon" style="background:#ef444422;"><i class="fa-solid fa-ban" style="color:var(--red);"></i></div><div><div style="color:var(--t1);font-size:14px;font-weight:500;">Blocked Users</div></div></div><i class="fa-solid fa-chevron-right" style="color:var(--t2);font-size:13px;"></i></div>
     </div>
 
     <!-- Notifications -->
@@ -1166,6 +1167,13 @@
 <div class="modal-box">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">❓ FAQ</span><button onclick="closeModal('faq-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
   <div id="faq-list"></div>
+</div></div>
+
+<!-- Blocked Users -->
+<div id="blocked-users-modal" class="modal-bg hidden" onclick="if(event.target===this)closeModal('blocked-users-modal')">
+<div class="modal-box" style="max-height:80vh;overflow-y:auto;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;"><span style="font-size:17px;font-weight:700;color:var(--t1);">🚫 Blocked Users</span><button onclick="closeModal('blocked-users-modal')" style="color:var(--t2);font-size:26px;">×</button></div>
+  <div id="blocked-users-list"></div>
 </div></div>
 
 <!-- Privacy Policy -->

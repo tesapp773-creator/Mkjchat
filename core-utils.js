@@ -339,6 +339,73 @@ function toggleBlock(){
   else{localStorage.setItem(key,'true');db.ref(`blocks/${me.uid}/${chatTarget.uid}`).set(true);toast('User blocked 🚫','warn');}
   $('block-label').textContent=!blocked?'Unblock User':'Block User';
 }
+
+// ══ BLOCKED USERS LIST ══════════════════════════════════════════════
+// Firebase (blocks/{me.uid}) is the source of truth here - it's the
+// only thing that can be reliably enumerated across devices, unlike
+// localStorage which is per-device. See openPrivate()'s cross-device
+// check below for the other half of this fix.
+async function openBlockedUsersModal(){
+  const listEl=$('blocked-users-list');
+  if(!listEl||!me)return;
+  listEl.innerHTML='<div style="text-align:center;color:var(--t2);font-size:13px;padding:24px 0;">Loading…</div>';
+  openModal('blocked-users-modal');
+
+  try{
+    const snap=await db.ref(`blocks/${me.uid}`).once('value');
+    const blockedIds=Object.keys(snap.val()||{});
+
+    if(!blockedIds.length){
+      listEl.innerHTML='<div style="text-align:center;color:var(--t2);font-size:13px;padding:28px 0;"><i class="fa-solid fa-ban" style="font-size:26px;opacity:.4;display:block;margin-bottom:10px;"></i>You haven\'t blocked anyone.</div>';
+      return;
+    }
+
+    const users=await Promise.all(blockedIds.map(async uid=>{
+      const us=await db.ref(`users/${uid}`).once('value');
+      const u=us.val()||{};
+      return {uid,username:u.username||'Unknown User',photoURL:u.photoURL||''};
+    }));
+
+    renderBlockedUsersList(users);
+  }catch(e){
+    console.error('[blocked-users] load failed:',e);
+    listEl.innerHTML='<div style="text-align:center;color:var(--red);font-size:13px;padding:24px 0;">Couldn\'t load blocked users. Please try again.</div>';
+  }
+}
+
+function renderBlockedUsersList(users){
+  const listEl=$('blocked-users-list');if(!listEl)return;
+  listEl.innerHTML=users.map(u=>`
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 4px;" id="blocked-row-${u.uid}">
+      <img src="${esc(u.photoURL||avUrl(u.username))}" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;">
+      <div style="flex:1;color:var(--t1);font-size:14px;font-weight:500;">${esc(getDisplayName(u.uid,u.username))}</div>
+      <button onclick="confirmUnblockUser('${u.uid}','${esc(u.username).replace(/'/g,"\\'")}')" style="padding:7px 14px;background:var(--s2);border-radius:20px;color:var(--t1);font-size:12.5px;font-weight:600;">Unblock</button>
+    </div>`).join('');
+}
+
+function confirmUnblockUser(uid,name){
+  if(!confirm(`Are you sure you want to unblock ${name}?`))return;
+  localStorage.removeItem(`blocked_${uid}`);
+  db.ref(`blocks/${me.uid}/${uid}`).remove().then(()=>{
+    toast('User unblocked','info');
+    const row=$(`blocked-row-${uid}`);
+    if(row)row.remove();
+    // If this contact's chat menu happens to be open right now, keep its
+    // Block/Unblock label in sync too - same variable openPrivatMenu()
+    // itself reads, so no separate logic needed there.
+    if(chatTarget&&chatTarget.uid===uid){
+      const label=$('block-label');if(label)label.textContent='Block User';
+    }
+    // If the list is now empty, show the empty state instead of a blank box.
+    const listEl=$('blocked-users-list');
+    if(listEl&&!listEl.querySelector('[id^="blocked-row-"]')){
+      listEl.innerHTML='<div style="text-align:center;color:var(--t2);font-size:13px;padding:28px 0;"><i class="fa-solid fa-ban" style="font-size:26px;opacity:.4;display:block;margin-bottom:10px;"></i>You haven\'t blocked anyone.</div>';
+    }
+  }).catch(e=>{
+    console.error('[blocked-users] unblock failed:',e);
+    toast('Could not unblock — please try again','error');
+  });
+}
 function openPrivatMenu(){
   const blocked=chatTarget&&localStorage.getItem(`blocked_${chatTarget.uid}`)==='true';
   const muted=chatTarget&&localStorage.getItem(`muted_${chatTarget.uid}`)==='true';
