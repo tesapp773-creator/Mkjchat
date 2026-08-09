@@ -43,6 +43,21 @@ function renderGifGrid(gifs,container,chatType){
 
 // ══ ATTACH ════════════════════════════════════════════════════════
 function openAttach(chatType){_attachChat=chatType;openModal('attach-modal');}
+// ══ MEDIA CAPTION FLOW ═══════════════════════════════════════════
+// pickMedia() no longer uploads immediately - it shows a full-screen
+// preview (media-caption-screen in index.html) so the user can add an
+// optional caption first, matching how every major chat app handles
+// this. The actual compress/upload/send sequence is unchanged - it
+// just now runs from sendPendingMedia() once the user taps Send,
+// instead of the moment a file is picked.
+let _pendingMedia=null; // {file, type, chatType, replyData, objectUrl}
+
+function formatFileSize(bytes){
+  if(bytes<1024)return bytes+' B';
+  if(bytes<1024*1024)return(bytes/1024).toFixed(0)+' KB';
+  return(bytes/(1024*1024)).toFixed(1)+' MB';
+}
+
 function pickMedia(type){
   if(!me)return;closeModal('attach-modal');
   const chatType=_attachChat;
@@ -50,21 +65,87 @@ function pickMedia(type){
   if(type==='image'||type==='gallery')inp.accept='image/*';
   else if(type==='video')inp.accept='video/*';
   else inp.accept='*/*';
-  inp.onchange=async e=>{
+  inp.onchange=e=>{
     const f=e.target.files[0];if(!f)return;
     if(f.size>200*1024*1024)return toast('Max 200MB','error');
-    toast('Uploading…','info');
-    try{
-      let file=f;if(f.type.startsWith('image/'))file=await compressImage(f);
-      const url=await uploadCld(file);
-      const msgType=f.type.startsWith('video/')?'video':f.type.startsWith('audio/')?'voice':'image';
-      const msg={uid:me.uid,username:me.username,mkjNumber:me.mkjNumber,photoURL:me.photoURL,url,time:ts(),timestamp:Date.now(),type:type==='file'?'file':msgType};
-      if(type==='file')msg.fileName=f.name;
-      const rd=replyData[chatType];if(rd){msg.replyTo=rd;clearReply(chatType);}
-      sendToRef(chatType,msg,type==='file'?`[${f.name}]`:`[${msgType}]`);
-    }catch(err){toast('Upload failed','error');}
+    // Captured now, at pick time - same timing the original code used
+    // right before sendToRef, just held onto until the user taps Send.
+    const rd=replyData[chatType];
+    _pendingMedia={file:f,type,chatType,replyData:rd,objectUrl:URL.createObjectURL(f)};
+    openMediaCaptionScreen();
   };inp.click();
 }
+
+function openMediaCaptionScreen(){
+  if(!_pendingMedia)return;
+  const {file,type,objectUrl}=_pendingMedia;
+  const img=$('mc-preview-img'),vid=$('mc-preview-video'),fileBox=$('mc-preview-file');
+  img.classList.add('hidden');vid.classList.add('hidden');fileBox.classList.add('hidden');
+  vid.pause();vid.removeAttribute('src');
+
+  // "file" is a deliberate user choice (Send as File) even for an
+  // image/video - it deliberately renders as a plain file link in chat
+  // (see makeMsgCore), so the preview screen respects that same choice
+  // rather than silently showing a media preview instead.
+  if(type!=='file'&&file.type.startsWith('image/')){
+    img.src=objectUrl;img.classList.remove('hidden');
+  }else if(type!=='file'&&file.type.startsWith('video/')){
+    vid.src=objectUrl;vid.classList.remove('hidden');
+  }else{
+    $('mc-filename').textContent=file.name;
+    fileBox.classList.remove('hidden');
+  }
+
+  $('mc-filesize').textContent=formatFileSize(file.size);
+  const cap=$('mc-caption');cap.value='';cap.style.height='auto';
+  $('mc-error').classList.add('hidden');
+  setMcSendLoading(false);
+  $('media-caption-screen').classList.remove('hidden');
+  setTimeout(()=>cap.focus(),50);
+}
+
+function closeMediaCaptionScreen(){
+  if(_pendingMedia?.objectUrl)URL.revokeObjectURL(_pendingMedia.objectUrl);
+  _pendingMedia=null;
+  $('media-caption-screen').classList.add('hidden');
+}
+
+function setMcSendLoading(loading){
+  const btn=$('mc-send-btn'),icon=$('mc-send-icon');
+  if(!btn||!icon)return;
+  btn.style.opacity=loading?'.6':'1';
+  btn.style.pointerEvents=loading?'none':'auto';
+  icon.className=loading?'fa-solid fa-spinner fa-spin':'fa-solid fa-paper-plane';
+}
+
+async function sendPendingMedia(){
+  if(!_pendingMedia||!me)return;
+  const{file:f,type,chatType,replyData:rd}=_pendingMedia;
+  const caption=$('mc-caption').value.trim();
+  $('mc-error').classList.add('hidden');
+  setMcSendLoading(true);
+  try{
+    let file=f;if(f.type.startsWith('image/'))file=await compressImage(f);
+    const url=await uploadCld(file);
+    const msgType=f.type.startsWith('video/')?'video':f.type.startsWith('audio/')?'voice':'image';
+    const msg={uid:me.uid,username:me.username,mkjNumber:me.mkjNumber,photoURL:me.photoURL,url,time:ts(),timestamp:Date.now(),type:type==='file'?'file':msgType};
+    if(type==='file')msg.fileName=f.name;
+    if(caption)msg.text=caption;
+    if(rd){msg.replyTo=rd;clearReply(chatType);}
+    sendToRef(chatType,msg,type==='file'?`[${f.name}]`:(caption||`[${msgType}]`));
+    if(_pendingMedia?.objectUrl)URL.revokeObjectURL(_pendingMedia.objectUrl);
+    _pendingMedia=null;
+    $('media-caption-screen').classList.add('hidden');
+  }catch(err){
+    console.error('[media-caption] send failed:',err);
+    // Stay on screen, keep the picked file - don't make the user
+    // reselect it just because the network hiccupped.
+    $('mc-error').textContent='Upload failed — please try again.';
+    $('mc-error').classList.remove('hidden');
+    setMcSendLoading(false);
+  }
+}
+
 
 // ══ VOICE NOTES ══════════════════════════════════════════════════
 async function startVoice(chatType){
@@ -333,6 +414,15 @@ function makeMsgCore(msg,isMe,key,chatType,reactions,searchQ){
   else{
     const textHtml=searchQ?highlightText(msg.text||'',searchQ):detectLinks(msg.text||'');
     html+=`<div style="font-size:var(--fs,15px);white-space:pre-wrap;line-height:1.5;color:var(--t1);">${textHtml}</div>`;
+  }
+  // Caption support for media messages: image/video/gif/file only ever
+  // rendered the media itself before, with no way to also show text
+  // alongside it - this is the missing half of the caption feature
+  // (pickMedia/sendPendingMedia collect the caption; this is what
+  // actually displays it to the sender AND everyone else in the chat).
+  if(['image','video','gif','file'].includes(msg.type)&&msg.text){
+    const captionHtml=searchQ?highlightText(msg.text,searchQ):detectLinks(msg.text);
+    html+=`<div style="font-size:var(--fs,15px);white-space:pre-wrap;line-height:1.5;color:var(--t1);margin-top:6px;">${captionHtml}</div>`;
   }
   // Time + ticks
   html+=`<div style="display:flex;align-items:center;justify-content:flex-end;gap:4px;margin-top:4px;">
