@@ -341,38 +341,65 @@ function toggleBlock(){
 }
 function openPrivatMenu(){
   const blocked=chatTarget&&localStorage.getItem(`blocked_${chatTarget.uid}`)==='true';
-  $('block-label').textContent=blocked?'Unblock User':'Block User';
   const muted=chatTarget&&localStorage.getItem(`muted_${chatTarget.uid}`)==='true';
-  $('mute-label').textContent=muted?'Unmute Notifications':'Mute Notifications';
-  // Add dynamic items
-  const menu=$('private-menu-modal');
-  if(menu&&!menu.querySelector('.extra-menu-items')){
-    const box=menu.querySelector('.modal-box');
-    const extra=document.createElement('div');extra.className='extra-menu-items';
-    extra.style.cssText='display:grid;gap:6px;margin-top:12px;border-top:1px solid rgba(255,255,255,.06);padding-top:12px;';
-    const items=[
-      {icon:'fa-address-book',color:'var(--g)',label:'Save Contact',fn:()=>{if(chatTarget?.uid)saveContactPrompt(chatTarget.uid,chatTarget.username,chatTarget.photoURL);}},
-      {icon:'fa-chart-bar',color:'var(--g)',label:'Chat Statistics',fn:()=>openChatStats()},
-      {icon:'fa-palette',color:'var(--purple)',label:'Chat Theme',fn:()=>openChatTheme()},
-      {icon:'fa-note-sticky',color:'var(--amber)',label:'Shared Notes',fn:()=>openCollabNotes()},
-      {icon:'fa-gamepad',color:'var(--blue)',label:'Mini-Games',fn:()=>openModal('games-modal')},
-      {icon:'fa-thumbtack',color:'#f97316',label:isPinned(chatId)?'Unpin Chat':'Pin Chat',fn:isPinned(chatId)?()=>unpinChat(chatId):()=>pinChat(chatId,chatTarget?.uid)},
-      {icon:'fa-box-archive',color:'var(--t2)',label:'Archive Chat',fn:()=>archiveChat(chatId,chatTarget?.uid)},
-      {icon:'fa-check-double',color:'var(--blue)',label:'Read Receipts',fn:()=>openReadReceiptModal()},
-      {icon:'fa-user-plus',color:'var(--g)',label:'Follow User',fn:()=>followUser(chatTarget?.uid)},
-      {icon:'fa-download',color:'var(--t2)',label:'Export Chat',fn:()=>exportChat()},
-      {icon:'fa-bolt',color:'var(--amber)',label:'Quick Replies',fn:()=>openQuickReplies()},
-    ];
-    items.forEach(it=>{
-      const row=document.createElement('div');row.className='ci';row.style.cssText='border-radius:10px;padding:8px 4px;cursor:pointer;';
-      row.innerHTML=`<i class="fa-solid ${it.icon}" style="color:${it.color};width:22px;font-size:15px;"></i><span style="font-size:14px;color:var(--t1);">${it.label}</span>`;
-      row.onclick=()=>{closeModal('private-menu-modal');it.fn();};
-      extra.appendChild(row);
-    });
-    if(box)box.appendChild(extra);
-  }
+  const pinned=isPinned(chatId);
+
+  // Section-labeled, icon-chip menu. Rebuilt from scratch on every open
+  // (not just once) so toggle-dependent labels - mute, block, pin - are
+  // always current. Grouping: Conversation / Shared Content /
+  // Contact & Privacy / Advanced, with Block isolated in its own danger
+  // zone at the bottom, never sitting next to a harmless action.
+  const sections=[
+    {label:'Conversation',items:[
+      {icon:muted?'fa-bell':'fa-bell-slash',iconId:'mute-icon',color:'var(--t2)',label:muted?'Unmute Notifications':'Mute Notifications',labelId:'mute-label',fn:'toggleMuteChat()'},
+      {icon:'fa-clock',color:'var(--amber)',label:'Disappearing Messages',fn:"openModal('disappear-modal')"},
+      {icon:'fa-thumbtack',color:'var(--purple)',label:'Pinned Messages',fn:"openModal('pin-modal');loadPinned('private')"},
+      {icon:'fa-palette',color:'var(--purple)',label:'Chat Theme',fn:'openChatTheme()'},
+      {icon:'fa-palette',color:'var(--g)',label:'Chat Background',fn:"openBgPicker('private')"},
+      {icon:'fa-image',color:'var(--blue)',label:'Set Wallpaper',fn:"setChatWallpaper('private')"},
+      {icon:'fa-check-double',color:'var(--blue)',label:'Read Receipts',fn:'openReadReceiptModal()'},
+    ]},
+    {label:'Shared Content',items:[
+      {icon:'fa-note-sticky',color:'var(--amber)',label:'Shared Notes',fn:'openCollabNotes()'},
+      {icon:'fa-gamepad',color:'var(--blue)',label:'Mini-Games',fn:"openModal('games-modal')"},
+    ]},
+    {label:'Contact & Privacy',items:[
+      {icon:'fa-address-book',color:'var(--g)',label:'Save Contact',fn:'saveContactPromptFromMenu()'},
+      {icon:'fa-user-plus',color:'var(--g)',label:'Follow User',fn:'followUserFromMenu()'},
+    ]},
+    {label:'Advanced',items:[
+      {icon:'fa-chart-bar',color:'var(--g)',label:'Chat Statistics',fn:'openChatStats()'},
+      {icon:'fa-download',color:'var(--t2)',label:'Export Chat',fn:'exportChat()'},
+      {icon:'fa-thumbtack',color:'#f97316',label:pinned?'Unpin Chat':'Pin Chat',fn:pinned?'unpinChatFromMenu()':'pinChatFromMenu()'},
+      {icon:'fa-box-archive',color:'var(--t2)',label:'Archive Chat',fn:'archiveChatFromMenu()'},
+      {icon:'fa-bolt',color:'var(--amber)',label:'Quick Replies',fn:'openQuickReplies()'},
+    ]},
+  ];
+
+  const chip=(icon,color,iconId)=>`<div style="width:32px;height:32px;border-radius:9px;background:color-mix(in srgb, ${color} 16%, transparent);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i${iconId?` id="${iconId}"`:''} class="fa-solid ${icon}" style="color:${color};font-size:15px;"></i></div>`;
+  const sectionLabel=(text)=>`<div style="color:var(--g);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:14px 6px 6px;">${text}</div>`;
+  const row=(it)=>`<div class="ci" style="border-radius:10px;" onclick="${it.fn};closeModal('private-menu-modal')">${chip(it.icon,it.color,it.iconId)}<span${it.labelId?` id="${it.labelId}"`:''} style="color:var(--t1);font-size:14px;font-weight:500;">${it.label}</span></div>`;
+
+  let html=sections.map(s=>sectionLabel(s.label)+s.items.map(row).join('')).join('');
+
+  // Danger zone: isolated below a divider, always last, red - never one
+  // accidental tap away from a harmless option like Mute.
+  html+=`<div style="height:1px;background:rgba(255,255,255,.08);margin:14px 6px 4px;"></div>`;
+  html+=`<div class="ci" style="border-radius:10px;" onclick="toggleBlock();closeModal('private-menu-modal')">${chip('fa-ban','var(--red)','block-icon')}<span id="block-label" style="color:var(--red);font-size:14px;font-weight:500;">${blocked?'Unblock User':'Block User'}</span></div>`;
+
+  const container=$('private-menu-items');
+  if(container)container.innerHTML=html;
+
   openModal('private-menu-modal');
 }
+// Small wrappers so the menu's onclick strings above can call these with
+// the current chatTarget/chatId in scope without inlining logic there.
+function saveContactPromptFromMenu(){if(chatTarget?.uid)saveContactPrompt(chatTarget.uid,chatTarget.username,chatTarget.photoURL);}
+function followUserFromMenu(){followUser(chatTarget?.uid);}
+function pinChatFromMenu(){pinChat(chatId,chatTarget?.uid);}
+function unpinChatFromMenu(){unpinChat(chatId);}
+function archiveChatFromMenu(){archiveChat(chatId,chatTarget?.uid);}
+
 
 // ══ PRIVACY TOGGLES ══════════════════════════════════════════════
 function togglePrivacy(type){
