@@ -47,10 +47,22 @@ function openAttach(chatType){_attachChat=chatType;openModal('attach-modal');}
 // pickMedia() no longer uploads immediately - it shows a full-screen
 // preview (media-caption-screen in index.html) so the user can add an
 // optional caption first, matching how every major chat app handles
-// this. The actual compress/upload/send sequence is unchanged - it
-// just now runs from sendPendingMedia() once the user taps Send,
-// instead of the moment a file is picked.
-let _pendingMedia=null; // {file, type, chatType, replyData, objectUrl}
+// this. Supports multi-select: each item still becomes its own
+// separate chat message (same data model as before, zero risk to
+// existing rendering) - the carousel/thumbnail-strip UI is purely a
+// picking/preview convenience layered on top.
+//
+// _pendingMedia.items holds EVERY picked item for the life of the
+// screen, including ones already successfully sent (status:'sent') -
+// mcVisible() below is what filters those out for display/upload
+// purposes. Keeping sent items in the array (instead of deleting them)
+// is what makes retry-after-partial-failure safe: object references
+// stay stable, so captionItemRef and replyAttached tracking can't get
+// confused by array indices shifting around.
+let _pendingMedia=null; // {items:[{file,objectUrl,status}], type, chatType, replyData, currentIndex, captionItemRef, replyAttached}
+
+const MC_UPLOAD_CONCURRENCY=3; // a few uploads in parallel, not all-at-once or fully sequential
+const MC_WARN_THRESHOLD=10;    // soft warning only - never blocks selection
 
 function formatFileSize(bytes){
   if(bytes<1024)return bytes+' B';
@@ -58,27 +70,103 @@ function formatFileSize(bytes){
   return(bytes/(1024*1024)).toFixed(1)+' MB';
 }
 
+function mcVisible(){
+  return _pendingMedia ? _pendingMedia.items.filter(it=>it.status!=='sent') : [];
+}
+
 function pickMedia(type){
   if(!me)return;closeModal('attach-modal');
   const chatType=_attachChat;
   const inp=document.createElement('input');inp.type='file';
-  if(type==='image'||type==='gallery')inp.accept='image/*';
+  // Camera stays single-shot (matches what the button implies); Gallery,
+  // Video, and File all allow picking several at once. Gallery accepts
+  // both images and video since OS photo pickers naturally mix the two
+  // in one browsing view.
+  inp.multiple=type!=='image';
+  if(type==='image')inp.accept='image/*';
+  else if(type==='gallery')inp.accept='image/*,video/*';
   else if(type==='video')inp.accept='video/*';
   else inp.accept='*/*';
   inp.onchange=e=>{
-    const f=e.target.files[0];if(!f)return;
-    if(f.size>200*1024*1024)return toast('Max 200MB','error');
+    const picked=Array.from(e.target.files||[]);
+    if(!picked.length)return;
+
+    const MAX_SIZE=200*1024*1024;
+    const valid=picked.filter(f=>f.size<=MAX_SIZE);
+    const skipped=picked.length-valid.length;
+    if(skipped>0)toast(`${skipped} file${skipped>1?'s':''} skipped — over 200MB`,'error');
+    if(!valid.length)return;
+
     // Captured now, at pick time - same timing the original code used
     // right before sendToRef, just held onto until the user taps Send.
     const rd=replyData[chatType];
-    _pendingMedia={file:f,type,chatType,replyData:rd,objectUrl:URL.createObjectURL(f)};
+    const items=valid.map(file=>({file,objectUrl:URL.createObjectURL(file),status:'pending'}));
+    _pendingMedia={items,type,chatType,replyData:rd,currentIndex:0,captionItemRef:null,replyAttached:false};
     openMediaCaptionScreen();
   };inp.click();
 }
 
 function openMediaCaptionScreen(){
   if(!_pendingMedia)return;
-  const {file,type,objectUrl}=_pendingMedia;
+  mcRefreshMultiUi();
+  mcRenderCurrentItem();
+  const cap=$('mc-caption');cap.value='';cap.style.height='auto';
+  $('mc-error').classList.add('hidden');
+  setMcSendLoading(false);
+  $('media-caption-screen').classList.remove('hidden');
+  setTimeout(()=>cap.focus(),50);
+}
+
+function closeMediaCaptionScreen(){
+  if(_pendingMedia)_pendingMedia.items.forEach(it=>URL.revokeObjectURL(it.objectUrl));
+  _pendingMedia=null;
+  $('media-caption-screen').classList.add('hidden');
+}
+
+function setMcSendLoading(loading){
+  const btn=$('mc-send-btn'),icon=$('mc-send-icon'),closeBtn=$('mc-close-btn');
+  if(!btn||!icon)return;
+  btn.style.opacity=loading?'.6':'1';
+  btn.style.pointerEvents=loading?'none':'auto';
+  icon.className=loading?'fa-solid fa-spinner fa-spin':'fa-solid fa-paper-plane';
+  // Also block the X while sending - closing mid-upload would null out
+  // _pendingMedia while sendOne()'s in-flight async calls still expect
+  // to read it once their upload finishes.
+  if(closeBtn){
+    closeBtn.style.opacity=loading?'.3':'1';
+    closeBtn.style.pointerEvents=loading?'none':'auto';
+  }
+}
+
+// Shows/hides the counter, nav arrows, thumbnail strip, and the "many
+// files" warning based on how many items are currently visible. Called
+// whenever the visible set changes size (initial open, item removed,
+// or after a partial-failure retry pass).
+function mcRefreshMultiUi(){
+  const visible=mcVisible();
+  const multi=visible.length>1;
+  $('mc-counter').classList.toggle('hidden',!multi);
+  $('mc-nav-prev').classList.toggle('hidden',!multi);
+  $('mc-nav-next').classList.toggle('hidden',!multi);
+  $('mc-thumbs').classList.toggle('hidden',!multi);
+  if(multi)renderMcThumbs();
+
+  const warnEl=$('mc-warning');
+  if(visible.length>MC_WARN_THRESHOLD){
+    warnEl.textContent=`You've selected ${visible.length} files — sending this many may take a while.`;
+    warnEl.classList.remove('hidden');
+  }else warnEl.classList.add('hidden');
+
+  if(_pendingMedia.currentIndex>=visible.length)_pendingMedia.currentIndex=Math.max(0,visible.length-1);
+}
+
+function mcRenderCurrentItem(){
+  if(!_pendingMedia)return;
+  const visible=mcVisible();
+  if(!visible.length)return; // everything already sent - screen is about to close
+  const{type}=_pendingMedia;
+  const item=visible[_pendingMedia.currentIndex];
+  const{file,objectUrl}=item;
   const img=$('mc-preview-img'),vid=$('mc-preview-video'),fileBox=$('mc-preview-file');
   img.classList.add('hidden');vid.classList.add('hidden');fileBox.classList.add('hidden');
   vid.pause();vid.removeAttribute('src');
@@ -97,55 +185,139 @@ function openMediaCaptionScreen(){
   }
 
   $('mc-filesize').textContent=formatFileSize(file.size);
-  const cap=$('mc-caption');cap.value='';cap.style.height='auto';
-  $('mc-error').classList.add('hidden');
-  setMcSendLoading(false);
-  $('media-caption-screen').classList.remove('hidden');
-  setTimeout(()=>cap.focus(),50);
+  if(visible.length>1)$('mc-counter').textContent=`${_pendingMedia.currentIndex+1}/${visible.length}`;
+
+  document.querySelectorAll('#mc-thumbs .mc-thumb').forEach((el,i)=>{
+    el.style.borderColor=i===_pendingMedia.currentIndex?'var(--g)':'transparent';
+  });
 }
 
-function closeMediaCaptionScreen(){
-  if(_pendingMedia?.objectUrl)URL.revokeObjectURL(_pendingMedia.objectUrl);
-  _pendingMedia=null;
-  $('media-caption-screen').classList.add('hidden');
+function mcNavigate(dir){
+  if(!_pendingMedia)return;
+  const n=mcVisible().length;if(n<2)return;
+  _pendingMedia.currentIndex=(_pendingMedia.currentIndex+dir+n)%n;
+  mcRenderCurrentItem();
 }
 
-function setMcSendLoading(loading){
-  const btn=$('mc-send-btn'),icon=$('mc-send-icon');
-  if(!btn||!icon)return;
-  btn.style.opacity=loading?'.6':'1';
-  btn.style.pointerEvents=loading?'none':'auto';
-  icon.className=loading?'fa-solid fa-spinner fa-spin':'fa-solid fa-paper-plane';
+function mcJumpTo(i){
+  if(!_pendingMedia)return;
+  _pendingMedia.currentIndex=i;
+  mcRenderCurrentItem();
+}
+
+function mcRemoveItem(i){
+  if(!_pendingMedia)return;
+  const visible=mcVisible();
+  if(visible.length<=1){closeMediaCaptionScreen();return;} // removing the only item = cancel entirely
+  const item=visible[i];
+  URL.revokeObjectURL(item.objectUrl);
+  _pendingMedia.items.splice(_pendingMedia.items.indexOf(item),1);
+  mcRefreshMultiUi();
+  mcRenderCurrentItem();
+}
+
+function renderMcThumbs(){
+  const wrap=$('mc-thumbs');if(!wrap||!_pendingMedia)return;
+  const{type}=_pendingMedia;
+  wrap.innerHTML=mcVisible().map((item,i)=>{
+    const isImg=type!=='file'&&item.file.type.startsWith('image/');
+    const inner=isImg
+      ?`<img src="${item.objectUrl}" style="width:100%;height:100%;object-fit:cover;">`
+      :`<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#222;"><i class="fa-solid ${item.file.type.startsWith('video/')?'fa-video':'fa-file'}" style="color:#aaa;font-size:16px;"></i></div>`;
+    return`<div class="mc-thumb" onclick="mcJumpTo(${i})" style="position:relative;flex-shrink:0;width:52px;height:52px;border-radius:8px;overflow:hidden;border:2px solid transparent;cursor:pointer;">
+      ${inner}
+      <button onclick="event.stopPropagation();mcRemoveItem(${i})" style="position:absolute;top:-4px;right:-4px;width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,.75);color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function mcUpdateProgress(sent,total){
+  if(total<=1)return; // single-item sends keep the plain spinner, unchanged from before
+  const sizeEl=$('mc-filesize');
+  if(sizeEl)sizeEl.textContent=`Sending ${sent}/${total}…`;
 }
 
 async function sendPendingMedia(){
   if(!_pendingMedia||!me)return;
-  const{file:f,type,chatType,replyData:rd}=_pendingMedia;
+  const{type,chatType,replyData:rd}=_pendingMedia;
+  const toSend=mcVisible();
+  if(!toSend.length)return;
   const caption=$('mc-caption').value.trim();
+
+  // Decide ONCE which specific item carries the caption - tracked by
+  // object reference (not array index), so it correctly follows that
+  // exact item through retries even as the visible list shrinks around
+  // it. Without this, a retry after partial failure could re-attach
+  // the caption to a different item, or duplicate it onto one that
+  // already sent successfully.
+  if(caption&&!_pendingMedia.captionItemRef){
+    _pendingMedia.captionItemRef=toSend[toSend.length-1];
+  }
+
   $('mc-error').classList.add('hidden');
   setMcSendLoading(true);
-  try{
-    let file=f;if(f.type.startsWith('image/'))file=await compressImage(f);
-    const url=await uploadCld(file);
-    const msgType=f.type.startsWith('video/')?'video':f.type.startsWith('audio/')?'voice':'image';
-    const msg={uid:me.uid,username:me.username,mkjNumber:me.mkjNumber,photoURL:me.photoURL,url,time:ts(),timestamp:Date.now(),type:type==='file'?'file':msgType};
-    if(type==='file')msg.fileName=f.name;
-    if(caption)msg.text=caption;
-    if(rd){msg.replyTo=rd;clearReply(chatType);}
-    sendToRef(chatType,msg,type==='file'?`[${f.name}]`:(caption||`[${msgType}]`));
-    if(_pendingMedia?.objectUrl)URL.revokeObjectURL(_pendingMedia.objectUrl);
+
+  const total=_pendingMedia.items.length;
+  let sentCount=_pendingMedia.items.filter(it=>it.status==='sent').length;
+  mcUpdateProgress(sentCount,total);
+
+  const sendOne=async(item)=>{
+    if(item.status==='sent')return;
+    item.status='uploading';
+    try{
+      let file=item.file;
+      if(file.type.startsWith('image/'))file=await compressImage(file);
+      const url=await uploadCld(file);
+      // Defensive: the close button is disabled during sending (see
+      // setMcSendLoading), but guard here too in case this ever gets
+      // reached another way - _pendingMedia could have been cleared
+      // out from under an in-flight upload.
+      if(!_pendingMedia)return;
+      const msgType=item.file.type.startsWith('video/')?'video':item.file.type.startsWith('audio/')?'voice':'image';
+      const msg={uid:me.uid,username:me.username,mkjNumber:me.mkjNumber,photoURL:me.photoURL,url,time:ts(),timestamp:Date.now(),type:type==='file'?'file':msgType};
+      if(type==='file')msg.fileName=item.file.name;
+      const isCaptionCarrier=item===_pendingMedia.captionItemRef;
+      if(isCaptionCarrier&&caption)msg.text=caption;
+      if(rd&&!_pendingMedia.replyAttached){
+        msg.replyTo=rd;
+        _pendingMedia.replyAttached=true;
+        clearReply(chatType);
+      }
+      sendToRef(chatType,msg,type==='file'?`[${item.file.name}]`:((isCaptionCarrier&&caption)?caption:`[${msgType}]`));
+      item.status='sent';
+      sentCount++;
+      mcUpdateProgress(sentCount,total);
+    }catch(err){
+      console.error('[media-caption] item failed:',err);
+      item.status='failed';
+    }
+  };
+
+  // Bounded concurrency: a small batch at a time, not fully sequential
+  // (slow for many files) or fully simultaneous (risky on a weak
+  // connection).
+  for(let i=0;i<toSend.length;i+=MC_UPLOAD_CONCURRENCY){
+    await Promise.all(toSend.slice(i,i+MC_UPLOAD_CONCURRENCY).map(sendOne));
+  }
+
+  const stillFailed=mcVisible();
+  if(!_pendingMedia)return; // guarded above, but never touch a null _pendingMedia below this line
+  if(!stillFailed.length){
+    _pendingMedia.items.forEach(it=>URL.revokeObjectURL(it.objectUrl));
     _pendingMedia=null;
     $('media-caption-screen').classList.add('hidden');
-  }catch(err){
-    console.error('[media-caption] send failed:',err);
-    // Stay on screen, keep the picked file - don't make the user
-    // reselect it just because the network hiccupped.
-    $('mc-error').textContent='Upload failed — please try again.';
+  }else{
+    // Keep the screen open showing only what failed - everything that
+    // already sent successfully stays sent, nothing gets lost or
+    // resent, and retrying only touches the items that actually failed.
+    const n=stillFailed.length;
+    $('mc-error').textContent=`${n} file${n>1?'s':''} failed to send. Tap send to retry.`;
     $('mc-error').classList.remove('hidden');
+    mcRefreshMultiUi();
+    mcRenderCurrentItem();
     setMcSendLoading(false);
   }
 }
-
 
 // ══ VOICE NOTES ══════════════════════════════════════════════════
 async function startVoice(chatType){
