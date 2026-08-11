@@ -244,78 +244,124 @@ async function sendPendingMedia(){
   if(!toSend.length)return;
   const caption=$('mc-caption').value.trim();
 
-  // Decide ONCE which specific item carries the caption - tracked by
-  // object reference (not array index), so it correctly follows that
-  // exact item through retries even as the visible list shrinks around
-  // it. Without this, a retry after partial failure could re-attach
-  // the caption to a different item, or duplicate it onto one that
-  // already sent successfully.
-  if(caption&&!_pendingMedia.captionItemRef){
-    _pendingMedia.captionItemRef=toSend[toSend.length-1];
-  }
+  // Files (documents) are never grouped into a visual album, even when
+  // several are selected together - matches WhatsApp's own convention
+  // and this app's existing file-link rendering, which has no
+  // meaningful "thumbnail grid" equivalent for a file icon+name.
+  const isAlbum=toSend.length>1&&type!=='file';
 
   $('mc-error').classList.add('hidden');
   setMcSendLoading(true);
 
-  const total=_pendingMedia.items.length;
-  let sentCount=_pendingMedia.items.filter(it=>it.status==='sent').length;
-  mcUpdateProgress(sentCount,total);
+  const total=toSend.length;
+  // On a retry, some items may already be 'uploaded' from a prior
+  // attempt (album path only - see uploadOne's skip-if-already-uploaded
+  // check below) - count those in immediately so the progress text
+  // doesn't under-report on retry.
+  let doneCount=toSend.filter(it=>it.status==='uploaded').length;
+  mcUpdateProgress(doneCount,total);
 
-  const sendOne=async(item)=>{
-    if(item.status==='sent')return;
-    item.status='uploading';
-    try{
-      let file=item.file;
-      if(file.type.startsWith('image/'))file=await compressImage(file);
-      const url=await uploadCld(file);
-      // Defensive: the close button is disabled during sending (see
-      // setMcSendLoading), but guard here too in case this ever gets
-      // reached another way - _pendingMedia could have been cleared
-      // out from under an in-flight upload.
-      if(!_pendingMedia)return;
-      const msgType=item.file.type.startsWith('video/')?'video':item.file.type.startsWith('audio/')?'voice':'image';
-      const msg={uid:me.uid,username:me.username,mkjNumber:me.mkjNumber,photoURL:me.photoURL,url,time:ts(),timestamp:Date.now(),type:type==='file'?'file':msgType};
-      if(type==='file')msg.fileName=item.file.name;
-      const isCaptionCarrier=item===_pendingMedia.captionItemRef;
-      if(isCaptionCarrier&&caption)msg.text=caption;
-      if(rd&&!_pendingMedia.replyAttached){
-        msg.replyTo=rd;
-        _pendingMedia.replyAttached=true;
-        clearReply(chatType);
+  if(isAlbum){
+    // An album is ONE atomic message - nothing goes out until every
+    // item has successfully uploaded. Decide the caption-carrying item
+    // once, by reference (see the comment on this pattern further up),
+    // though for an album the caption actually belongs to the whole
+    // group, not one specific tile - kept here only for symmetry with
+    // the non-album path below and reply-context handling.
+    const uploadOne=async(item)=>{
+      if(item.status==='uploaded')return; // don't redo work from a prior attempt
+      item.status='uploading';
+      try{
+        let file=item.file;
+        if(file.type.startsWith('image/'))file=await compressImage(file);
+        const url=await uploadCld(file);
+        item.uploadedUrl=url;
+        item.mediaType=item.file.type.startsWith('video/')?'video':'image';
+        item.status='uploaded';
+        doneCount++;
+        mcUpdateProgress(doneCount,total);
+      }catch(err){
+        console.error('[media-caption] album item upload failed:',err);
+        item.status='failed';
       }
-      sendToRef(chatType,msg,type==='file'?`[${item.file.name}]`:((isCaptionCarrier&&caption)?caption:`[${msgType}]`));
-      item.status='sent';
-      sentCount++;
-      mcUpdateProgress(sentCount,total);
-    }catch(err){
-      console.error('[media-caption] item failed:',err);
-      item.status='failed';
-    }
-  };
+    };
 
-  // Bounded concurrency: a small batch at a time, not fully sequential
-  // (slow for many files) or fully simultaneous (risky on a weak
-  // connection).
-  for(let i=0;i<toSend.length;i+=MC_UPLOAD_CONCURRENCY){
-    await Promise.all(toSend.slice(i,i+MC_UPLOAD_CONCURRENCY).map(sendOne));
+    for(let i=0;i<toSend.length;i+=MC_UPLOAD_CONCURRENCY){
+      await Promise.all(toSend.slice(i,i+MC_UPLOAD_CONCURRENCY).map(uploadOne));
+    }
+
+    if(!_pendingMedia)return;
+    const failed=mcVisible().filter(it=>it.status==='failed');
+    if(failed.length){
+      // Nothing sends yet - keep everything that already uploaded
+      // marked 'uploaded' (not re-uploaded on retry), only the failed
+      // ones need another attempt.
+      const n=failed.length;
+      $('mc-error').textContent=`${n} file${n>1?'s':''} failed to upload. Tap send to retry.`;
+      $('mc-error').classList.remove('hidden');
+      mcRefreshMultiUi();mcRenderCurrentItem();setMcSendLoading(false);
+      return;
+    }
+
+    const uploaded=mcVisible().filter(it=>it.status==='uploaded');
+    const items=uploaded.map(it=>({url:it.uploadedUrl,mediaType:it.mediaType}));
+    const msg={uid:me.uid,username:me.username,mkjNumber:me.mkjNumber,photoURL:me.photoURL,time:ts(),timestamp:Date.now(),type:'album',items};
+    if(caption)msg.text=caption;
+    if(rd){msg.replyTo=rd;clearReply(chatType);}
+    sendToRef(chatType,msg,caption||`📷 ${items.length} items`);
+    uploaded.forEach(it=>{it.status='sent';});
+  }else{
+    // Not an album: single item, or several files sent as their own
+    // independent messages. Each one sends the moment ITS OWN upload
+    // finishes - no reason to make unrelated messages wait on each
+    // other. The caption (if any) attaches to the last one sent.
+    let replyAttached=_pendingMedia.replyAttached||false;
+    const sendOne=async(item)=>{
+      if(item.status==='sent')return;
+      item.status='uploading';
+      try{
+        let file=item.file;
+        if(file.type.startsWith('image/'))file=await compressImage(file);
+        const url=await uploadCld(file);
+        if(!_pendingMedia)return;
+        const msgType=item.file.type.startsWith('video/')?'video':item.file.type.startsWith('audio/')?'voice':'image';
+        const msg={uid:me.uid,username:me.username,mkjNumber:me.mkjNumber,photoURL:me.photoURL,url,time:ts(),timestamp:Date.now(),type:type==='file'?'file':msgType};
+        if(type==='file')msg.fileName=item.file.name;
+        if(caption&&!_pendingMedia.captionItemRef)_pendingMedia.captionItemRef=toSend[toSend.length-1];
+        const isCaptionCarrier=item===_pendingMedia.captionItemRef;
+        if(isCaptionCarrier&&caption)msg.text=caption;
+        if(rd&&!replyAttached){msg.replyTo=rd;replyAttached=true;_pendingMedia.replyAttached=true;clearReply(chatType);}
+        sendToRef(chatType,msg,type==='file'?`[${item.file.name}]`:((isCaptionCarrier&&caption)?caption:`[${msgType}]`));
+        item.status='sent';
+        doneCount++;
+        mcUpdateProgress(doneCount,total);
+      }catch(err){
+        console.error('[media-caption] item failed:',err);
+        item.status='failed';
+      }
+    };
+
+    for(let i=0;i<toSend.length;i+=MC_UPLOAD_CONCURRENCY){
+      await Promise.all(toSend.slice(i,i+MC_UPLOAD_CONCURRENCY).map(sendOne));
+    }
+
+    if(!_pendingMedia)return;
+    const stillFailed=mcVisible();
+    if(stillFailed.length){
+      const n=stillFailed.length;
+      $('mc-error').textContent=`${n} file${n>1?'s':''} failed to send. Tap send to retry.`;
+      $('mc-error').classList.remove('hidden');
+      mcRefreshMultiUi();mcRenderCurrentItem();setMcSendLoading(false);
+      return;
+    }
   }
 
-  const stillFailed=mcVisible();
-  if(!_pendingMedia)return; // guarded above, but never touch a null _pendingMedia below this line
-  if(!stillFailed.length){
+  if(!_pendingMedia)return;
+  const remaining=mcVisible();
+  if(!remaining.length){
     _pendingMedia.items.forEach(it=>URL.revokeObjectURL(it.objectUrl));
     _pendingMedia=null;
     $('media-caption-screen').classList.add('hidden');
-  }else{
-    // Keep the screen open showing only what failed - everything that
-    // already sent successfully stays sent, nothing gets lost or
-    // resent, and retrying only touches the items that actually failed.
-    const n=stillFailed.length;
-    $('mc-error').textContent=`${n} file${n>1?'s':''} failed to send. Tap send to retry.`;
-    $('mc-error').classList.remove('hidden');
-    mcRefreshMultiUi();
-    mcRenderCurrentItem();
-    setMcSendLoading(false);
   }
 }
 
@@ -551,6 +597,28 @@ function makeMsgCore(msg,isMe,key,chatType,reactions,searchQ){
   if(msg.replyTo)html+=`<div style="background:rgba(0,0,0,.2);border-left:3px solid var(--g);border-radius:0 6px 6px 0;padding:5px 8px;margin-bottom:5px;font-size:11px;"><div style="color:var(--g);font-weight:600;">${esc(msg.replyTo.username||'')}</div><div style="color:var(--t2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">${esc(msg.replyTo.text||'[media]')}</div></div>`;
   // Content
   if(msg.type==='image')html+=`<img src="${esc(msg.url)}" style="max-width:220px;border-radius:10px;display:block;cursor:pointer;" loading="lazy" onclick="window.open('${esc(msg.url)}','_blank')">`;
+  else if(msg.type==='album'){
+    // Grouped multi-photo/video send - one message, one caption for the
+    // whole group, matching WhatsApp's own layout. Files never use this
+    // type (see sendPendingMedia) - only image/video items land here.
+    const items=msg.items||[];
+    const MAX_TILES=4;
+    const visible=items.slice(0,MAX_TILES);
+    const extra=items.length-MAX_TILES;
+    html+=`<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px;max-width:240px;border-radius:10px;overflow:hidden;">`;
+    visible.forEach((it,idx)=>{
+      const showOverlay=idx===visible.length-1&&extra>0;
+      const tile=it.mediaType==='video'
+        ?`<video src="${esc(it.url)}" style="width:100%;height:100%;object-fit:cover;display:block;"></video>`
+        :`<img src="${esc(it.url)}" style="width:100%;height:100%;object-fit:cover;display:block;" loading="lazy">`;
+      html+=`<div style="position:relative;aspect-ratio:1;cursor:pointer;" onclick="window.open('${esc(it.url)}','_blank')">
+        ${tile}
+        ${it.mediaType==='video'?`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;"><i class="fa-solid fa-play" style="color:#fff;font-size:18px;text-shadow:0 1px 4px rgba(0,0,0,.6);"></i></div>`:''}
+        ${showOverlay?`<div style="position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;font-weight:700;pointer-events:none;">+${extra}</div>`:''}
+      </div>`;
+    });
+    html+=`</div>`;
+  }
   else if(msg.type==='video')html+=`<video controls style="max-width:220px;border-radius:10px;display:block;"><source src="${esc(msg.url)}"></video>`;
   else if(msg.type==='voice')html+=`<div><audio controls src="${esc(msg.url)}" style="max-width:240px;" id="aud-${esc(key)}"></audio><br><button onclick="transcribeAudio('${esc(msg.url)}','${esc(key)}')" style="font-size:11px;color:var(--g);margin-top:4px;"><i class='fa-solid fa-waveform-lines' style='margin-right:3px;'></i>Transcribe</button><div id="tr-${esc(key)}" class="transcript-box hidden"></div></div>`;
   else if(msg.type==='gif')html+=`<img src="${esc(msg.url)}" style="max-width:220px;border-radius:10px;display:block;" loading="lazy">`;
@@ -592,7 +660,7 @@ function makeMsgCore(msg,isMe,key,chatType,reactions,searchQ){
   // alongside it - this is the missing half of the caption feature
   // (pickMedia/sendPendingMedia collect the caption; this is what
   // actually displays it to the sender AND everyone else in the chat).
-  if(['image','video','gif','file'].includes(msg.type)&&msg.text){
+  if(['image','video','gif','file','album'].includes(msg.type)&&msg.text){
     const captionHtml=searchQ?highlightText(msg.text,searchQ):detectLinks(msg.text);
     html+=`<div style="font-size:var(--fs,15px);white-space:pre-wrap;line-height:1.5;color:var(--t1);margin-top:6px;">${captionHtml}</div>`;
   }
