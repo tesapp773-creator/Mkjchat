@@ -83,9 +83,16 @@ const ERROR_CODES = Object.freeze({
 // via env if needed in the future.
 const MODELS = Object.freeze({
   GEMINI: {
-    DEFAULT: 'gemini-2.0-flash',
+    // gemini-2.0-flash was retired by Google on June 1, 2026 (confirmed
+    // via 404s in the Netlify logs on Aug 12, 2026 - Google's API simply
+    // stopped answering that model name). gemini-2.5-flash is Google's
+    // official current replacement. NOTE: 2.5-flash is itself already
+    // scheduled for retirement around October 16, 2026 per Google's own
+    // deprecation page - this will likely need another one-line update
+    // around then, not a surprise if it does.
+    DEFAULT: 'gemini-2.5-flash',
     PRO: 'gemini-2.0-pro',
-    VISION: 'gemini-2.0-flash',
+    VISION: 'gemini-2.5-flash',
   },
   OPENROUTER: {
     // 'openrouter/free' is OpenRouter's own auto-router: it picks
