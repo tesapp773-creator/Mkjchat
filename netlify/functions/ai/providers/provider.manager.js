@@ -101,6 +101,27 @@ function getFallbackProvider(excludeName) {
 }
 
 /**
+ * Get EVERY remaining available provider, in registry order, excluding
+ * whichever ones have already been tried. Added 2026-08-13: a single
+ * fallback (getFallbackProvider above) isn't enough resilience on its
+ * own - if Gemini fails AND its one fallback also fails, chat should
+ * still try whatever else is registered (e.g. OpenRouter) before truly
+ * giving up. Used to build a full retry chain, not just one backup.
+ * @param {string[]} excludeNames - Names already attempted.
+ * @returns {Array<import('./base.provider')>}
+ */
+function getFallbackChain(excludeNames) {
+  const excluded = new Set(excludeNames);
+  const chain = [];
+  for (const [name, candidate] of registry.entries()) {
+    if (!excluded.has(name) && candidate.isAvailable()) {
+      chain.push(candidate);
+    }
+  }
+  return chain;
+}
+
+/**
  * List all registered providers and their availability - for health checks.
  * @returns {Array<{name: string, available: boolean}>}
  */
@@ -125,6 +146,7 @@ module.exports = {
   getProvider,
   getDefaultProvider,
   getFallbackProvider,
+  getFallbackChain,
   resolveProvider,
   listProviders,
   registerProvider,
