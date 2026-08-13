@@ -1,9 +1,9 @@
 'use strict';
 
-const { resolveProvider, getFallbackProvider } = require('../providers/provider.manager');
+const { resolveProvider, getFallbackChain } = require('../providers/provider.manager');
 const { renderPrompt } = require('../prompts/prompt.loader');
 const { requireString, validateHistory, capMessageLength } = require('../utils/validate');
-const { ROLES, LIMITS, HTTP_STATUS } = require('../constants');
+const { ROLES, LIMITS } = require('../constants');
 const { ProviderError } = require('../errors/AppError');
 const imageService = require('./image.service');
 const searchService = require('./search.service');
@@ -122,22 +122,23 @@ async function expandImagePrompt(message) {
 }
 
 /**
- * Whether a failure from a provider is the kind that's worth retrying on
- * a DIFFERENT provider (rate limit / quota / that provider being down),
- * as opposed to something that would fail identically everywhere (bad
- * input, etc).
+ * Whether a failure from a provider is worth retrying on a different
+ * provider. Fixed on 2026-08-13: this used to only fall back on
+ * specific status codes (429/502/503/500+), which meant an unexpected
+ * failure type - like a 404 from a provider retiring a model name
+ * without warning - fell through every safety net (Cloudflare, Groq)
+ * even though they were fully working. Input validation already
+ * happens BEFORE a provider is ever called (see requireString /
+ * capMessageLength above), so any ProviderError reaching this point is
+ * inherently about THAT provider failing, not about something wrong
+ * with the user's message - there's no real category of provider
+ * failure left worth excluding from the safety net. Any ProviderError
+ * now triggers a fallback attempt, full stop.
  * @param {Error} err
  * @returns {boolean}
  */
 function isFallbackWorthy(err) {
-  if (!(err instanceof ProviderError)) return false;
-  const status = err.details?.status;
-  return (
-    status === HTTP_STATUS.TOO_MANY_REQUESTS ||
-    status === HTTP_STATUS.SERVICE_UNAVAILABLE ||
-    status === HTTP_STATUS.BAD_GATEWAY ||
-    status >= 500
-  );
+  return err instanceof ProviderError;
 }
 
 /**
@@ -238,30 +239,45 @@ async function generateChatResponse(params = {}) {
     result = await provider.chatComplete(requestArgs);
   } catch (err) {
     // Only auto-fallback when the caller didn't explicitly request a
-    // specific provider (params.provider), and only for failures that
-    // indicate THIS provider is having trouble right now (rate limit,
-    // outage) rather than an error that would happen on any provider.
+    // specific provider (params.provider). Every ProviderError is now
+    // fallback-worthy (see isFallbackWorthy's comment for why this
+    // changed on 2026-08-13) - and rather than trying just ONE backup,
+    // walk the full chain of remaining registered providers until one
+    // succeeds or all are exhausted. A single fallback isn't enough
+    // resilience: if the first backup ALSO happens to be down, chat
+    // shouldn't give up while a third provider might still work.
     if (params.provider || !isFallbackWorthy(err)) {
       throw err;
     }
 
-    const fallback = getFallbackProvider(provider.name);
-    if (!fallback) {
-      logger.warn('Primary provider failed and no fallback is configured', {
-        failedProvider: provider.name,
+    const tried = [provider.name];
+    let lastErr = err;
+    let succeeded = false;
+
+    for (const fallback of getFallbackChain(tried)) {
+      logger.warn('Provider failed, retrying with next provider in the chain', {
+        failedProvider: tried[tried.length - 1],
+        tryingProvider: fallback.name,
+        reason: lastErr.message,
       });
-      throw err;
+      tried.push(fallback.name);
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        result = await fallback.chatComplete(requestArgs);
+        succeeded = true;
+        break;
+      } catch (fallbackErr) {
+        lastErr = fallbackErr;
+      }
     }
 
-    logger.warn('Primary provider failed, retrying with fallback provider', {
-      failedProvider: provider.name,
-      fallbackProvider: fallback.name,
-      reason: err.message,
-    });
-
-    // Let a fallback failure propagate as-is - if both providers are
-    // down, the caller should see a real error, not a swallowed one.
-    result = await fallback.chatComplete(requestArgs);
+    if (!succeeded) {
+      logger.error('Every available provider failed for this request', {
+        triedProviders: tried,
+        lastError: lastErr.message,
+      });
+      throw lastErr;
+    }
   }
 
   return {

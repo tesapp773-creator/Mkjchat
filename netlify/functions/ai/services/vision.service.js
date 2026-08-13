@@ -24,15 +24,18 @@ const DEFAULT_QUESTION = 'Describe what is in this image in a friendly, conversa
 
 /**
  * Whether a provider failure is worth retrying on the fallback vision
- * provider (rate limit / outage) vs one that would fail identically
- * everywhere (e.g. a malformed image).
+ * provider. Fixed 2026-08-13, same reasoning as chat.service.js's
+ * isFallbackWorthy: narrowing this to specific status codes meant an
+ * unexpected failure (e.g. a provider retiring a model name, which
+ * surfaces as a 404) would fall through Groq entirely even though it
+ * was working - exactly what just happened with gemini-2.0-flash on
+ * the chat path. Vision uses the same underlying Gemini model, so it
+ * was equally exposed to this. Any ProviderError now falls back.
  * @param {Error} err
  * @returns {boolean}
  */
 function isFallbackWorthy(err) {
-  if (!(err instanceof ProviderError)) return false;
-  const status = err.details?.status;
-  return status === 429 || status === 503 || status === 502 || status >= 500;
+  return err instanceof ProviderError;
 }
 
 /**
